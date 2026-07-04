@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum ProductionStage {
+  CUTTING
+  WELDING
+  POLISHING
+  OUTSOURCING
+  DELIVERY
+}
+
+enum OutsourcingType {
+  PLATING
+  POWDER_COATING
+  OXIDATION
+  BRUSHING
+  OTHER
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  contact   String?
+  phone     String?
+  address   String?
+  notes     String?
+  orders    Order[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Order {
+  id          String    @id @default(cuid())
+  orderNo     String    @unique
+  customerId  String
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  title       String
+  status      String    @default("draft")
+  dueDate     DateTime?
+  notes       String?
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Product {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  name      String
+  material  String?
+  spec      String?
+  quantity  Int      @default(1)
+  notes     String?
+  parts     Part[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Part {
+  id                  String                @id @default(cuid())
+  productId           String
+  product             Product               @relation(fields: [productId], references: [id])
+  name                String
+  material            String?
+  spec                String?
+  quantity            Int                   @default(1)
+  currentStage        ProductionStage       @default(CUTTING)
+  drawings            Drawing[]
+  outsourcingRecords  OutsourcingRecord[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+}
+
+model Drawing {
+  id          String   @id @default(cuid())
+  partId      String
+  part        Part     @relation(fields: [partId], references: [id])
+  fileName    String
+  fileUrl     String
+  thumbnailUrl String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model OutsourcingRecord {
+  id          String          @id @default(cuid())
+  partId      String
+  part        Part            @relation(fields: [partId], references: [id])
+  type        OutsourcingType
+  vendorName  String?
+  sentAt      DateTime?
+  returnedAt  DateTime?
+  status      String          @default("pending")
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
