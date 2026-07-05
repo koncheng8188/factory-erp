@@ -1,5 +1,16 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { prisma } from "@/lib/prisma";
+import { OrderManager } from "./order-manager";
 
-export default function OrdersPage() {
-  return <PlaceholderPage title="订单管理" description="管理客户订单、交期和订单内多个产品。" />;
+export const dynamic = "force-dynamic";
+
+export default async function OrdersPage() {
+  const [orders, customers] = await Promise.all([
+    prisma.order.findMany({
+      orderBy: { createdAt: "desc" },
+      include: { _count: { select: { products: true } } }
+    }),
+    prisma.customer.findMany({ orderBy: { name: "asc" } })
+  ]);
+
+  return <OrderManager orders={orders} customers={customers} />;
 }
