@@ -55,6 +55,17 @@ export default async function OutsourceDetailPage({ params }: OutsourceDetailPag
             }
           }
         }
+      },
+      returns: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          items: {
+            select: {
+              returnQuantity: true,
+              abnormalQuantity: true
+            }
+          }
+        }
       }
     }
   });
@@ -71,9 +82,18 @@ export default async function OutsourceDetailPage({ params }: OutsourceDetailPag
         </Link>
       </div>
 
-      <section>
-        <h1 className="text-2xl font-semibold">外发单详情：{outsourceOrder.outsourceNo}</h1>
-        <p className="mt-2 text-sm text-[#667085]">查看外发单基本信息和部件外发明细。</p>
+      <section className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">外发单详情：{outsourceOrder.outsourceNo}</h1>
+          <p className="mt-2 text-sm text-[#667085]">查看外发单基本信息、部件外发明细和回厂记录。</p>
+        </div>
+        <Link
+          href={`/returns/new?outsourceOrderId=${outsourceOrder.id}`}
+          className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
+          style={{ color: "#ffffff" }}
+        >
+          登记回厂
+        </Link>
       </section>
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
@@ -84,9 +104,9 @@ export default async function OutsourceDetailPage({ params }: OutsourceDetailPag
           <div><dt className="text-[#667085]">外发类型</dt><dd className="mt-1">{typeLabel(outsourceOrder.outsourceType)}</dd></div>
           <div><dt className="text-[#667085]">外发日期</dt><dd className="mt-1">{formatDisplayDate(outsourceOrder.outsourceDate)}</dd></div>
           <div><dt className="text-[#667085]">预计回厂日期</dt><dd className="mt-1">{formatDisplayDate(outsourceOrder.expectedReturnDate)}</dd></div>
+          <div><dt className="text-[#667085]">实际回厂日期</dt><dd className="mt-1">{formatDisplayDate(outsourceOrder.actualReturnDate)}</dd></div>
           <div><dt className="text-[#667085]">状态</dt><dd className="mt-1">{outsourceOrder.status}</dd></div>
           <div><dt className="text-[#667085]">经手人</dt><dd className="mt-1">{outsourceOrder.handler || "-"}</dd></div>
-          <div><dt className="text-[#667085]">创建时间</dt><dd className="mt-1">{formatDisplayDate(outsourceOrder.createdAt)}</dd></div>
           <div className="sm:col-span-2 lg:col-span-4"><dt className="text-[#667085]">备注</dt><dd className="mt-1">{outsourceOrder.remark || "-"}</dd></div>
         </dl>
       </section>
@@ -143,6 +163,51 @@ export default async function OutsourceDetailPage({ params }: OutsourceDetailPag
               {outsourceOrder.items.length === 0 ? (
                 <tr>
                   <td className="px-3 py-6 text-center text-[#667085]" colSpan={15}>暂无外发明细。</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-md border border-[#d8dde6] bg-white p-5">
+        <h2 className="text-lg font-semibold">回厂记录</h2>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+            <thead className="bg-[#f6f7f9] text-[#475467]">
+              <tr>
+                <th className="border-b border-[#d8dde6] px-3 py-3">回厂日期</th>
+                <th className="border-b border-[#d8dde6] px-3 py-3">经手人</th>
+                <th className="border-b border-[#d8dde6] px-3 py-3">明细数</th>
+                <th className="border-b border-[#d8dde6] px-3 py-3">回厂数量</th>
+                <th className="border-b border-[#d8dde6] px-3 py-3">异常数量</th>
+                <th className="border-b border-[#d8dde6] px-3 py-3">备注</th>
+                <th className="border-b border-[#d8dde6] px-3 py-3">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {outsourceOrder.returns.map((returnOrder) => {
+                const totalReturnQuantity = returnOrder.items.reduce((sum, item) => sum + item.returnQuantity, 0);
+                const totalAbnormalQuantity = returnOrder.items.reduce((sum, item) => sum + item.abnormalQuantity, 0);
+                return (
+                  <tr key={returnOrder.id} className="align-top">
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{formatDisplayDate(returnOrder.returnDate)}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{returnOrder.handler || "-"}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{returnOrder.items.length}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{totalReturnQuantity}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{totalAbnormalQuantity}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{returnOrder.remark || "-"}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">
+                      <Link className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={`/returns/${returnOrder.id}`}>
+                        详情
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+              {outsourceOrder.returns.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-6 text-center text-[#667085]" colSpan={7}>暂无回厂记录。</td>
                 </tr>
               ) : null}
             </tbody>
