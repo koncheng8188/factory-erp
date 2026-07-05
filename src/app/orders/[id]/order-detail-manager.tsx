@@ -167,6 +167,10 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
   const [error, setError] = useState("");
 
   const partTotalQuantity = useMemo(() => calculatedTotalQuantity(partForm), [partForm]);
+  const canCreateDelivery = useMemo(
+    () => order.products.some((product) => product.status === "WAIT_DELIVERY" || product.status === "PARTIAL_DELIVERED"),
+    [order.products]
+  );
 
   function updateOrderField(field: keyof OrderForm, value: string) {
     setOrderForm((current) => ({ ...current, [field]: value }));
@@ -705,7 +709,18 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
       </section>
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
-        <h2 className="text-lg font-semibold">产品明细表</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">产品明细表</h2>
+          {canCreateDelivery ? (
+            <Link
+              className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
+              href={`/delivery/new?orderId=${order.id}`}
+              style={{ color: "#ffffff" }}
+            >
+              创建送货单
+            </Link>
+          ) : null}
+        </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[980px] border-collapse text-left text-sm">
             <thead className="bg-[#f6f7f9] text-[#475467]">
