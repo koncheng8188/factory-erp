@@ -7,99 +7,317 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum ProductionStage {
+enum OrderStatus {
+  PENDING
+  PRODUCING
+  OUTSOURCING
+  WAIT_DELIVERY
+  PARTIAL_DELIVERED
+  COMPLETED
+  ABNORMAL
+}
+
+enum ProductStatus {
+  PENDING
   CUTTING
   WELDING
   POLISHING
+  WAIT_OUTSOURCE
   OUTSOURCING
-  DELIVERY
+  PARTIAL_RETURN
+  RETURNED
+  WAIT_DELIVERY
+  PARTIAL_DELIVERED
+  COMPLETED
+  ABNORMAL
 }
 
-enum OutsourcingType {
-  PLATING
+enum ProductPartStatus {
+  PENDING
+  WAIT_OUTSOURCE
+  OUTSOURCING
+  PARTIAL_RETURN
+  RETURNED
+  ABNORMAL
+}
+
+enum DrawingStatus {
+  PENDING
+  CONFIRMED
+  OBSOLETE
+}
+
+enum DrawingUploadStatus {
+  SUCCESS
+  THUMBNAIL_FAILED
+}
+
+enum OutsourceType {
+  ELECTROPLATING
   POWDER_COATING
   OXIDATION
-  BRUSHING
+  WIRE_DRAWING
   OTHER
 }
 
+enum OutsourceOrderStatus {
+  DRAFT
+  OUTSOURCED
+  PARTIAL_RETURN
+  RETURNED
+  ABNORMAL
+}
+
+enum OutsourceOrderItemStatus {
+  OUTSOURCED
+  PARTIAL_RETURN
+  RETURNED
+  ABNORMAL
+}
+
+enum DeliveryOrderStatus {
+  DRAFT
+  DELIVERED
+  PARTIAL_DELIVERED
+  COMPLETED
+}
+
 model Customer {
-  id        String   @id @default(cuid())
-  name      String
-  contact   String?
-  phone     String?
-  address   String?
-  notes     String?
-  orders    Order[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String          @id @default(cuid())
+  name           String
+  contact        String?
+  phone          String?
+  address        String?
+  remark         String?
+  orders         Order[]
+  deliveryOrders DeliveryOrder[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 }
 
 model Order {
-  id          String    @id @default(cuid())
-  orderNo     String    @unique
-  customerId  String
-  customer    Customer  @relation(fields: [customerId], references: [id])
-  title       String
-  status      String    @default("draft")
-  dueDate     DateTime?
-  notes       String?
-  products    Product[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                 String               @id @default(cuid())
+  orderNo            String               @unique
+  customerId         String
+  customer           Customer             @relation(fields: [customerId], references: [id])
+  customerName       String
+  orderDate          DateTime             @default(now())
+  deliveryDate       DateTime?
+  status             OrderStatus          @default(PENDING)
+  remark             String?
+  products           Product[]
+  productParts       ProductPart[]
+  drawings           PartDrawing[]
+  outsourceItems     OutsourceOrderItem[]
+  deliveryOrders     DeliveryOrder[]
+  deliveryOrderItems DeliveryOrderItem[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 }
 
 model Product {
-  id        String   @id @default(cuid())
-  orderId   String
-  order     Order    @relation(fields: [orderId], references: [id])
-  name      String
-  material  String?
-  spec      String?
-  quantity  Int      @default(1)
-  notes     String?
-  parts     Part[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String               @id @default(cuid())
+  orderId            String
+  order              Order                @relation(fields: [orderId], references: [id])
+  productName        String
+  specification      String?
+  material           String?
+  quantity           Int                  @default(1)
+  surfaceTreatment   String?
+  status             ProductStatus        @default(PENDING)
+  remark             String?
+  parts              ProductPart[]
+  drawings           PartDrawing[]
+  outsourceItems     OutsourceOrderItem[]
+  deliveryOrderItems DeliveryOrderItem[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([orderId])
 }
 
-model Part {
-  id                  String                @id @default(cuid())
-  productId           String
-  product             Product               @relation(fields: [productId], references: [id])
-  name                String
-  material            String?
-  spec                String?
-  quantity            Int                   @default(1)
-  currentStage        ProductionStage       @default(CUTTING)
-  drawings            Drawing[]
-  outsourcingRecords  OutsourcingRecord[]
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+model ProductPart {
+  id                   String                @id @default(cuid())
+  orderId              String
+  order                Order                 @relation(fields: [orderId], references: [id])
+  productId            String
+  product              Product               @relation(fields: [productId], references: [id])
+  partName             String
+  partCode             String?
+  specification        String?
+  material             String?
+  unitQuantity         Int                   @default(1)
+  productQuantity      Int                   @default(1)
+  totalQuantity        Int                   @default(1)
+  surfaceTreatment     String?
+  color                String?
+  outsourcedQuantity   Int                   @default(0)
+  returnedQuantity     Int                   @default(0)
+  missingQuantity      Int                   @default(0)
+  status               ProductPartStatus     @default(PENDING)
+  remark               String?
+  drawings             PartDrawing[]
+  outsourceItems       OutsourceOrderItem[]
+  outsourceReturnItems OutsourceReturnItem[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([partCode])
 }
 
-model Drawing {
-  id          String   @id @default(cuid())
-  partId      String
-  part        Part     @relation(fields: [partId], references: [id])
-  fileName    String
-  fileUrl     String
-  thumbnailUrl String?
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model PartDrawing {
+  id                String               @id @default(cuid())
+  orderId           String
+  order             Order                @relation(fields: [orderId], references: [id])
+  productId         String
+  product           Product              @relation(fields: [productId], references: [id])
+  partId            String
+  part              ProductPart          @relation(fields: [partId], references: [id])
+  fileName          String
+  fileType          String?
+  originalUrl       String
+  thumbnailUrl      String?
+  printThumbnailUrl String?
+  version           Int                  @default(1)
+  isMain            Boolean              @default(false)
+  status            DrawingStatus        @default(PENDING)
+  uploadStatus      DrawingUploadStatus  @default(SUCCESS)
+  errorMessage      String?
+  remark            String?
+  outsourceItems    OutsourceOrderItem[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([partId])
+  @@index([partId, status, isMain])
 }
 
-model OutsourcingRecord {
-  id          String          @id @default(cuid())
-  partId      String
-  part        Part            @relation(fields: [partId], references: [id])
-  type        OutsourcingType
-  vendorName  String?
-  sentAt      DateTime?
-  returnedAt  DateTime?
-  status      String          @default("pending")
-  notes       String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+model OutsourceOrder {
+  id                 String               @id @default(cuid())
+  outsourceNo        String               @unique
+  supplierName       String
+  outsourceType      OutsourceType
+  outsourceDate      DateTime             @default(now())
+  expectedReturnDate DateTime?
+  actualReturnDate   DateTime?
+  handler            String?
+  status             OutsourceOrderStatus @default(DRAFT)
+  remark             String?
+  items              OutsourceOrderItem[]
+  returns            OutsourceReturn[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+}
+
+model OutsourceOrderItem {
+  id                String                   @id @default(cuid())
+  outsourceOrderId  String
+  outsourceOrder    OutsourceOrder           @relation(fields: [outsourceOrderId], references: [id])
+  orderId           String
+  order             Order                    @relation(fields: [orderId], references: [id])
+  productId         String
+  product           Product                  @relation(fields: [productId], references: [id])
+  partId            String
+  part              ProductPart              @relation(fields: [partId], references: [id])
+  drawingId         String?
+  drawing           PartDrawing?             @relation(fields: [drawingId], references: [id])
+  partName          String
+  productName       String
+  surfaceTreatment  String?
+  color             String?
+  outsourceQuantity Int                      @default(0)
+  returnedQuantity  Int                      @default(0)
+  missingQuantity   Int                      @default(0)
+  thumbnailUrl      String?
+  originalUrl       String?
+  status            OutsourceOrderItemStatus @default(OUTSOURCED)
+  remark            String?
+  returnItems       OutsourceReturnItem[]
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([outsourceOrderId])
+  @@index([orderId])
+  @@index([productId])
+  @@index([partId])
+  @@index([drawingId])
+}
+
+model OutsourceReturn {
+  id               String                @id @default(cuid())
+  outsourceOrderId String
+  outsourceOrder   OutsourceOrder        @relation(fields: [outsourceOrderId], references: [id])
+  returnDate       DateTime              @default(now())
+  handler          String?
+  remark           String?
+  items            OutsourceReturnItem[]
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([outsourceOrderId])
+}
+
+model OutsourceReturnItem {
+  id                   String             @id @default(cuid())
+  outsourceReturnId    String
+  outsourceReturn      OutsourceReturn    @relation(fields: [outsourceReturnId], references: [id])
+  outsourceOrderItemId String
+  outsourceOrderItem   OutsourceOrderItem @relation(fields: [outsourceOrderItemId], references: [id])
+  partId               String
+  part                 ProductPart        @relation(fields: [partId], references: [id])
+  returnQuantity       Int                @default(0)
+  abnormalQuantity     Int                @default(0)
+  abnormalReason       String?
+  remark               String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([outsourceReturnId])
+  @@index([outsourceOrderItemId])
+  @@index([partId])
+}
+
+model DeliveryOrder {
+  id           String              @id @default(cuid())
+  deliveryNo   String              @unique
+  orderId      String
+  order        Order               @relation(fields: [orderId], references: [id])
+  customerId   String
+  customer     Customer            @relation(fields: [customerId], references: [id])
+  customerName String
+  deliveryDate DateTime            @default(now())
+  receiver     String?
+  handler      String?
+  status       DeliveryOrderStatus @default(DRAFT)
+  remark       String?
+  items        DeliveryOrderItem[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([orderId])
+  @@index([customerId])
+}
+
+model DeliveryOrderItem {
+  id               String        @id @default(cuid())
+  deliveryOrderId  String
+  deliveryOrder    DeliveryOrder @relation(fields: [deliveryOrderId], references: [id])
+  orderId          String
+  order            Order         @relation(fields: [orderId], references: [id])
+  productId        String
+  product          Product       @relation(fields: [productId], references: [id])
+  productName      String
+  specification    String?
+  deliveryQuantity Int           @default(0)
+  remark           String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([deliveryOrderId])
+  @@index([orderId])
+  @@index([productId])
 }
