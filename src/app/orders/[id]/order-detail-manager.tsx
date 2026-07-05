@@ -27,6 +27,22 @@ type ProductPart = {
   missingQuantity: number;
   status: string;
   remark: string | null;
+  drawings: PartDrawing[];
+};
+
+type PartDrawing = {
+  id: string;
+  fileName: string;
+  fileType: string | null;
+  originalUrl: string;
+  thumbnailUrl: string | null;
+  printThumbnailUrl: string | null;
+  version: number;
+  isMain: boolean;
+  status: string;
+  uploadStatus: string;
+  errorMessage: string | null;
+  remark: string | null;
 };
 
 type Product = {
@@ -84,6 +100,7 @@ type PartForm = {
 };
 
 const orderStatuses = ["PENDING", "PRODUCING", "OUTSOURCING", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED", "ABNORMAL"];
+const drawingStatuses = ["PENDING", "CONFIRMED", "OBSOLETE"];
 
 const emptyProductForm: ProductForm = {
   productName: "",
@@ -143,6 +160,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [activePartProductId, setActivePartProductId] = useState<string | null>(null);
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
+  const [uploadingPartId, setUploadingPartId] = useState<string | null>(null);
   const [partForm, setPartForm] = useState<PartForm>(emptyPartForm());
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -352,6 +370,174 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
       resetPartForm();
     }
     refreshWithMessage("部件已删除。");
+  }
+
+  async function uploadDrawings(event: React.FormEvent<HTMLFormElement>, part: ProductPart) {
+    event.preventDefault();
+    setMessage("");
+    setError("");
+    setUploadingPartId(part.id);
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const response = await fetch(`/api/parts/${part.id}/drawings`, {
+      method: "POST",
+      body: formData
+    });
+    const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查服务端日志。" }));
+
+    setUploadingPartId(null);
+
+    if (!response.ok) {
+      setError(data.error ?? "上传图纸失败。");
+      return;
+    }
+
+    form.reset();
+    refreshWithMessage("图纸已上传。");
+  }
+
+  async function updateDrawingStatus(drawing: PartDrawing, status: string) {
+    setMessage("");
+    setError("");
+
+    const response = await fetch(`/api/drawings/${drawing.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status })
+    });
+    const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查服务端日志。" }));
+
+    if (!response.ok) {
+      setError(data.error ?? "更新图纸状态失败。");
+      return;
+    }
+
+    refreshWithMessage("图纸状态已更新。");
+  }
+
+  async function setMainDrawing(drawing: PartDrawing) {
+    setMessage("");
+    setError("");
+
+    const response = await fetch(`/api/drawings/${drawing.id}/main`, { method: "POST" });
+    const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查服务端日志。" }));
+
+    if (!response.ok) {
+      setError(data.error ?? "设置主图失败。");
+      return;
+    }
+
+    refreshWithMessage("主图已设置。");
+  }
+
+  async function obsoleteDrawing(drawing: PartDrawing) {
+    if (!window.confirm(`确认作废图纸“${drawing.fileName}”吗？文件不会从磁盘删除。`)) {
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    const response = await fetch(`/api/drawings/${drawing.id}`, { method: "DELETE" });
+    const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查服务端日志。" }));
+
+    if (!response.ok) {
+      setError(data.error ?? "作废图纸失败。");
+      return;
+    }
+
+    refreshWithMessage("图纸已作废。");
+  }
+
+  function renderDrawingPreview(drawing: PartDrawing) {
+    if (drawing.thumbnailUrl) {
+      return <img className="h-16 w-20 rounded border border-[#d8dde6] object-contain" src={drawing.thumbnailUrl} alt={drawing.fileName} />;
+    }
+
+    return (
+      <div className="flex h-16 w-20 items-center justify-center rounded border border-[#d8dde6] bg-[#eef2f6] text-xs font-semibold text-[#475467]">
+        PDF
+      </div>
+    );
+  }
+
+  function renderDrawingManager(part: ProductPart) {
+    return (
+      <div className="space-y-4 rounded-md border border-[#d8dde6] bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h4 className="font-semibold">图纸管理</h4>
+            <p className="mt-1 text-xs text-[#667085]">支持 JPG、JPEG、PNG、WEBP、PDF；DWG/DXF 请先导出后上传。</p>
+          </div>
+          <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => uploadDrawings(event, part)}>
+            <input
+              className="max-w-72 rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm"
+              type="file"
+              name="files"
+              multiple
+              accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+            />
+            <button className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60" disabled={uploadingPartId === part.id}>
+              {uploadingPartId === part.id ? "上传中" : "上传图纸"}
+            </button>
+          </form>
+        </div>
+
+        {part.drawings.length === 0 ? (
+          <div className="rounded-md bg-[#fbfcfd] px-3 py-4 text-center text-sm text-[#667085]">暂无图纸</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+              <thead className="bg-[#eef2f6] text-[#475467]">
+                <tr>
+                  <th className="border-b border-[#d8dde6] px-3 py-2">缩略图</th>
+                  <th className="border-b border-[#d8dde6] px-3 py-2">文件名</th>
+                  <th className="border-b border-[#d8dde6] px-3 py-2">版本</th>
+                  <th className="border-b border-[#d8dde6] px-3 py-2">主图</th>
+                  <th className="border-b border-[#d8dde6] px-3 py-2">状态</th>
+                  <th className="border-b border-[#d8dde6] px-3 py-2">上传状态</th>
+                  <th className="border-b border-[#d8dde6] px-3 py-2">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {part.drawings.map((drawing) => (
+                  <tr key={drawing.id} className="align-top">
+                    <td className="border-b border-[#eef2f6] px-3 py-2">
+                      <a href={drawing.originalUrl} target="_blank" rel="noreferrer">
+                        {renderDrawingPreview(drawing)}
+                      </a>
+                    </td>
+                    <td className="border-b border-[#eef2f6] px-3 py-2">
+                      <div className="font-medium">{drawing.fileName}</div>
+                      {drawing.errorMessage ? <div className="mt-1 text-xs text-red-700">{drawing.errorMessage}</div> : null}
+                    </td>
+                    <td className="border-b border-[#eef2f6] px-3 py-2">V{drawing.version}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-2">{drawing.isMain ? "是" : "否"}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-2">
+                      <select className="rounded-md border border-[#cfd6e1] px-2 py-1" value={drawing.status} onChange={(event) => updateDrawingStatus(drawing, event.target.value)}>
+                        {drawingStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                      </select>
+                    </td>
+                    <td className="border-b border-[#eef2f6] px-3 py-2">{drawing.uploadStatus}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        <a className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={drawing.originalUrl} target="_blank" rel="noreferrer">查看原图</a>
+                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-50" disabled={drawing.isMain || drawing.status === "OBSOLETE"} onClick={() => setMainDrawing(drawing)}>
+                          设为主图
+                        </button>
+                        <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50" disabled={drawing.status === "OBSOLETE"} onClick={() => obsoleteDrawing(drawing)}>
+                          作废
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
   }
 
   function renderPartForm(product: Product) {
@@ -582,7 +768,8 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                           </thead>
                           <tbody>
                             {product.parts.map((part) => (
-                              <tr key={part.id} className="align-top">
+                              <Fragment key={part.id}>
+                              <tr className="align-top">
                                 <td className="border-b border-[#eef2f6] px-3 py-2 font-medium">{part.partName}</td>
                                 <td className="border-b border-[#eef2f6] px-3 py-2">{part.partCode || "-"}</td>
                                 <td className="border-b border-[#eef2f6] px-3 py-2">{part.specification || "-"}</td>
@@ -604,6 +791,12 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                                   </div>
                                 </td>
                               </tr>
+                              <tr>
+                                <td className="border-b border-[#d8dde6] bg-[#fbfcfd] px-3 py-3" colSpan={15}>
+                                  {renderDrawingManager(part)}
+                                </td>
+                              </tr>
+                              </Fragment>
                             ))}
                             {product.parts.length === 0 ? (
                               <tr>

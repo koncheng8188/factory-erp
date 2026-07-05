@@ -8,3 +8,12 @@ coverage
 *.log
 prisma/dev.db
 prisma/dev.db-journal
+public/uploads/**
+!public/uploads/
+!public/uploads/.gitkeep
+!public/uploads/drawings/
+!public/uploads/drawings/.gitkeep
+!public/uploads/drawings/originals/
+!public/uploads/drawings/originals/.gitkeep
+!public/uploads/drawings/thumbnails/
+!public/uploads/drawings/thumbnails/.gitkeep

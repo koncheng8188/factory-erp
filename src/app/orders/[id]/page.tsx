@@ -21,7 +21,14 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         products: {
           orderBy: { createdAt: "desc" },
           include: {
-            parts: { orderBy: { createdAt: "desc" } }
+            parts: {
+              orderBy: { createdAt: "desc" },
+              include: {
+                drawings: {
+                  orderBy: [{ isMain: "desc" }, { version: "desc" }, { createdAt: "desc" }]
+                }
+              }
+            }
           }
         }
       }
@@ -73,7 +80,21 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         returnedQuantity: part.returnedQuantity,
         missingQuantity: part.missingQuantity,
         status: part.status,
-        remark: part.remark
+        remark: part.remark,
+        drawings: part.drawings.map((drawing) => ({
+          id: drawing.id,
+          fileName: drawing.fileName,
+          fileType: drawing.fileType,
+          originalUrl: drawing.originalUrl,
+          thumbnailUrl: drawing.thumbnailUrl,
+          printThumbnailUrl: drawing.printThumbnailUrl,
+          version: drawing.version,
+          isMain: drawing.isMain,
+          status: drawing.status,
+          uploadStatus: drawing.uploadStatus,
+          errorMessage: drawing.errorMessage,
+          remark: drawing.remark
+        }))
       }))
     }))
   };
