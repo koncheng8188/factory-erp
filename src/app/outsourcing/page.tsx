@@ -1,5 +1,30 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { prisma } from "@/lib/prisma";
+import { OutsourcingManager } from "./outsourcing-manager";
 
-export default function OutsourcingPage() {
-  return <PlaceholderPage title="外发电镀" description="按部件管理电镀、喷粉、氧化、拉丝等外发记录。" />;
+export const dynamic = "force-dynamic";
+
+export default async function OutsourcingPage() {
+  const outsourceOrders = await prisma.outsourceOrder.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      _count: { select: { items: true } }
+    }
+  });
+
+  return (
+    <OutsourcingManager
+      outsourceOrders={outsourceOrders.map((order) => ({
+        id: order.id,
+        outsourceNo: order.outsourceNo,
+        supplierName: order.supplierName,
+        outsourceType: order.outsourceType,
+        outsourceDate: order.outsourceDate.toISOString(),
+        expectedReturnDate: order.expectedReturnDate?.toISOString() ?? null,
+        status: order.status,
+        handler: order.handler,
+        remark: order.remark,
+        itemCount: order._count.items
+      }))}
+    />
+  );
 }
