@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { calculatePartTotalQuantity } from "@/lib/product-parts";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "产品数量必须大于 0。" }, { status: 400 });
     }
 
-    const totalQuantity = unitQuantity * productQuantity;
+    const totalQuantity = calculatePartTotalQuantity(unitQuantity, productQuantity);
     if (totalQuantity < 0) {
       return NextResponse.json({ error: "应加工数量不能为负数。" }, { status: 400 });
     }

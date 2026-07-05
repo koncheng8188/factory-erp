@@ -18,7 +18,8 @@ const menuItems = [
   { href: "/outsourcing", label: "外发电镀" },
   { href: "/returns", label: "回厂登记" },
   { href: "/kitting", label: "齐套检查" },
-  { href: "/delivery", label: "送货管理" }
+  { href: "/delivery", label: "送货管理" },
+  { href: "/imports/excel", label: "Excel 导入" }
 ];
 
 export default function RootLayout({
