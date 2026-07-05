@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { OrderStatus, ProductStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { refreshKittingForProducts } from "@/lib/kitting";
 import { normalizeOptional, parseDate } from "@/lib/outsource";
@@ -20,6 +21,9 @@ function parseQuantity(value: unknown) {
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
+
+const nonRegressiveProductStatusList: ProductStatus[] = ["PARTIAL_DELIVERED", "COMPLETED"];
+const nonRegressiveOrderStatusList: OrderStatus[] = ["PARTIAL_DELIVERED", "COMPLETED"];
 
 export async function GET() {
   try {
@@ -144,6 +148,8 @@ export async function POST(request: NextRequest) {
 
       const affectedPartIds = new Set<string>();
       const affectedProductIds = new Set<string>();
+      const abnormalProductIds = new Set<string>();
+      const abnormalOrderIds = new Set<string>();
       for (const item of itemInputs) {
         const orderItem = orderItemMap.get(item.outsourceOrderItemId);
         if (!orderItem) continue;
@@ -168,6 +174,11 @@ export async function POST(request: NextRequest) {
           returnedQuantity: nextReturnedQuantity,
           hasAbnormal: hasHistoryAbnormal || item.abnormalQuantity > 0
         });
+
+        if (item.abnormalQuantity > 0) {
+          abnormalProductIds.add(orderItem.productId);
+          abnormalOrderIds.add(orderItem.orderId);
+        }
 
         await tx.outsourceOrderItem.update({
           where: { id: orderItem.id },
@@ -218,6 +229,26 @@ export async function POST(request: NextRequest) {
               hasAbnormal: hasHistoryAbnormal || hasCurrentAbnormal
             })
           }
+        });
+      }
+
+      if (abnormalProductIds.size > 0) {
+        await tx.product.updateMany({
+          where: {
+            id: { in: Array.from(abnormalProductIds) },
+            status: { notIn: nonRegressiveProductStatusList }
+          },
+          data: { status: "ABNORMAL" }
+        });
+      }
+
+      if (abnormalOrderIds.size > 0) {
+        await tx.order.updateMany({
+          where: {
+            id: { in: Array.from(abnormalOrderIds) },
+            status: { notIn: nonRegressiveOrderStatusList }
+          },
+          data: { status: "ABNORMAL" }
         });
       }
 

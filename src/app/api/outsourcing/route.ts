@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { OrderStatus, ProductStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   formatOutsourceDate,
@@ -16,6 +17,11 @@ function parseQuantity(value: unknown) {
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
+
+const blockedOutsourceProductStatusList: ProductStatus[] = ["ABNORMAL", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED"];
+const blockedOutsourceOrderStatusList: OrderStatus[] = ["ABNORMAL", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED"];
+const blockedOutsourceProductStatuses = new Set<ProductStatus>(blockedOutsourceProductStatusList);
+const blockedOutsourceOrderStatuses = new Set<OrderStatus>(blockedOutsourceOrderStatusList);
 
 export async function GET() {
   try {
@@ -88,8 +94,8 @@ export async function POST(request: NextRequest) {
       const parts = await tx.productPart.findMany({
         where: { id: { in: partIds } },
         include: {
-          product: { select: { id: true, productName: true } },
-          order: { select: { id: true } },
+          product: { select: { id: true, productName: true, status: true } },
+          order: { select: { id: true, orderNo: true, status: true } },
           drawings: {
             orderBy: [{ isMain: "desc" }, { version: "desc" }, { createdAt: "desc" }]
           }
@@ -119,6 +125,16 @@ export async function POST(request: NextRequest) {
       for (const part of parts) {
         const item = itemMap.get(part.id);
         if (!item) continue;
+
+        if (part.status === "ABNORMAL") {
+          throw new Error(`部件「${part.partName}」状态为 ABNORMAL，不能继续外发。`);
+        }
+        if (blockedOutsourceProductStatuses.has(part.product.status)) {
+          throw new Error(`产品「${part.product.productName}」状态为 ${part.product.status}，不能继续外发。`);
+        }
+        if (blockedOutsourceOrderStatuses.has(part.order.status)) {
+          throw new Error(`订单「${part.order.orderNo}」状态为 ${part.order.status}，不能继续创建外发单。`);
+        }
 
         const availableQuantity = part.totalQuantity - part.outsourcedQuantity;
         if (availableQuantity <= 0) {
@@ -151,25 +167,37 @@ export async function POST(request: NextRequest) {
         });
 
         const newOutsourcedQuantity = part.outsourcedQuantity + item.outsourceQuantity;
-        await tx.productPart.update({
-          where: { id: part.id },
+        const updatedPart = await tx.productPart.updateMany({
+          where: {
+            id: part.id,
+            status: { not: "ABNORMAL" }
+          },
           data: {
             outsourcedQuantity: newOutsourcedQuantity,
             missingQuantity: newOutsourcedQuantity - part.returnedQuantity,
             status: "OUTSOURCING"
           }
         });
+        if (updatedPart.count !== 1) {
+          throw new Error(`部件「${part.partName}」状态已变更，不能继续外发。`);
+        }
 
         productIds.add(part.productId);
         orderIds.add(part.orderId);
       }
 
       await tx.product.updateMany({
-        where: { id: { in: Array.from(productIds) } },
+        where: {
+          id: { in: Array.from(productIds) },
+          status: { notIn: blockedOutsourceProductStatusList }
+        },
         data: { status: "OUTSOURCING" }
       });
       await tx.order.updateMany({
-        where: { id: { in: Array.from(orderIds) } },
+        where: {
+          id: { in: Array.from(orderIds) },
+          status: { notIn: blockedOutsourceOrderStatusList }
+        },
         data: { status: "OUTSOURCING" }
       });
 

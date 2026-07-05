@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
       const latestSerial = latestOrder ? Number(latestOrder.deliveryNo.slice(-3)) : 0;
       const deliveryNo = `${prefix}${String(latestSerial + 1).padStart(3, "0")}`;
 
-      const createdOrder = await tx.deliveryOrder.create({
+      let createdOrder = await tx.deliveryOrder.create({
         data: {
           deliveryNo,
           orderId: order.id,
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
           deliveryDate,
           receiver: normalizeOptional(body.receiver),
           handler: normalizeOptional(body.handler),
-          status: "DELIVERED",
+          status: "PARTIAL_DELIVERED",
           remark: normalizeOptional(body.remark)
         }
       });
@@ -195,6 +195,7 @@ export async function POST(request: NextRequest) {
 
       const allCompleted = refreshedProducts.length > 0 && refreshedProducts.every((product) => product.status === "COMPLETED");
       const hasDelivered = refreshedProducts.some((product) => product.status === "PARTIAL_DELIVERED" || product.status === "COMPLETED");
+      const deliveryOrderStatus = allCompleted ? "DELIVERED" : "PARTIAL_DELIVERED";
 
       if (allCompleted) {
         await tx.order.update({
@@ -207,6 +208,11 @@ export async function POST(request: NextRequest) {
           data: { status: "PARTIAL_DELIVERED" }
         });
       }
+
+      createdOrder = await tx.deliveryOrder.update({
+        where: { id: createdOrder.id },
+        data: { status: deliveryOrderStatus }
+      });
 
       return createdOrder;
     });
