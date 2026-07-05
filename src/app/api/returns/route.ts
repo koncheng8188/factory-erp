@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { refreshKittingForProducts } from "@/lib/kitting";
 import { normalizeOptional, parseDate } from "@/lib/outsource";
 import { resolveOutsourceItemStatus, resolvePartStatus } from "@/lib/returns";
 
@@ -142,6 +143,7 @@ export async function POST(request: NextRequest) {
       });
 
       const affectedPartIds = new Set<string>();
+      const affectedProductIds = new Set<string>();
       for (const item of itemInputs) {
         const orderItem = orderItemMap.get(item.outsourceOrderItemId);
         if (!orderItem) continue;
@@ -191,6 +193,7 @@ export async function POST(request: NextRequest) {
           }
         });
         if (!part) continue;
+        affectedProductIds.add(part.productId);
 
         const addedReturnQuantity = itemInputs.reduce((sum, item) => {
           const orderItem = orderItemMap.get(item.outsourceOrderItemId);
@@ -238,6 +241,8 @@ export async function POST(request: NextRequest) {
           actualReturnDate: allReturned && !hasAbnormal ? returnDate : outsourceOrder.actualReturnDate
         }
       });
+
+      await refreshKittingForProducts(tx, Array.from(affectedProductIds));
 
       return outsourceReturn;
     });

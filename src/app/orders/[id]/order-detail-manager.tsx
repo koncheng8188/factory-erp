@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useMemo, useState, useTransition } from "react";
 
@@ -734,6 +735,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                       <div className="flex flex-wrap gap-2">
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditProduct(product)}>编辑</button>
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button>
+                        <Link className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={`/kitting?productId=${product.id}`}>齐套检查</Link>
                         <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteProduct(product)}>删除</button>
                       </div>
                     </td>

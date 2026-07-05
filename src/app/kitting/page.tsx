@@ -1,5 +1,60 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { prisma } from "@/lib/prisma";
+import { calculateKittingResult } from "@/lib/kitting";
+import { KittingManager } from "./kitting-manager";
 
-export default function KittingPage() {
-  return <PlaceholderPage title="齐套检查" description="检查订单产品和部件是否已齐套可送货。" />;
+export const dynamic = "force-dynamic";
+
+type KittingPageProps = {
+  searchParams: Promise<{ productId?: string }>;
+};
+
+export default async function KittingPage({ searchParams }: KittingPageProps) {
+  const { productId } = await searchParams;
+  const products = await prisma.product.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      order: {
+        select: {
+          id: true,
+          orderNo: true,
+          customerName: true
+        }
+      },
+      parts: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          partName: true,
+          partCode: true,
+          totalQuantity: true,
+          outsourcedQuantity: true,
+          returnedQuantity: true,
+          status: true
+        }
+      }
+    }
+  });
+
+  const kittingProducts = products.map((product) => {
+    const result = calculateKittingResult(product);
+    return {
+      id: product.id,
+      orderId: product.orderId,
+      orderNo: product.order.orderNo,
+      customerName: product.order.customerName,
+      productName: product.productName,
+      specification: product.specification,
+      quantity: product.quantity,
+      status: product.status,
+      partCount: product.parts.length,
+      hasParts: result.hasParts,
+      isQuantityComplete: result.isQuantityComplete,
+      hasAbnormal: result.hasAbnormal,
+      message: result.message,
+      missingParts: result.missingParts,
+      parts: result.parts
+    };
+  });
+
+  return <KittingManager products={kittingProducts} selectedProductId={productId ?? null} />;
 }
