@@ -162,6 +162,8 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
   const [activePartProductId, setActivePartProductId] = useState<string | null>(null);
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
   const [uploadingPartId, setUploadingPartId] = useState<string | null>(null);
+  const [wholePartProductId, setWholePartProductId] = useState<string | null>(null);
+  const [createdWholePartProductIds, setCreatedWholePartProductIds] = useState<string[]>([]);
   const [partForm, setPartForm] = useState<PartForm>(emptyPartForm());
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -282,6 +284,46 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
     refreshWithMessage("产品已删除。");
   }
 
+  async function createWholeProductPart(product: Product) {
+    if (product.parts.length > 0 || createdWholePartProductIds.includes(product.id)) {
+      window.alert("该产品已有部件，不能设为整件产品");
+      return;
+    }
+
+    if (!window.confirm("确认将该产品设为整件产品吗？系统会自动创建一个“整件”部件。")) {
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    setWholePartProductId(product.id);
+
+    try {
+      const response = await fetch(`/api/products/${product.id}/whole-part`, { method: "POST" });
+      const text = await response.text();
+      let data: { error?: string; success?: boolean } = {};
+
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = {};
+      }
+
+      if (!response.ok) {
+        window.alert(data.error ?? "设为整件产品失败");
+        return;
+      }
+
+      window.alert("已设为整件产品");
+      setCreatedWholePartProductIds((current) => current.includes(product.id) ? current : [...current, product.id]);
+      refreshWithMessage("已设为整件产品。");
+    } catch (requestError) {
+      window.alert(requestError instanceof Error ? requestError.message : "设为整件产品失败");
+    } finally {
+      setWholePartProductId(null);
+    }
+  }
+
   function startAddPart(product: Product) {
     setActivePartProductId(product.id);
     setEditingPartId(null);
@@ -357,26 +399,35 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
   }
 
   async function deletePart(part: ProductPart) {
-    if (!window.confirm(`确认删除部件“${part.partName}”吗？`)) {
+    if (!window.confirm(`\u786e\u8ba4\u5220\u9664\u90e8\u4ef6\u201c${part.partName}\u201d\u5417\uff1f`)) {
       return;
     }
 
     setMessage("");
     setError("");
     const response = await fetch(`/api/parts/${part.id}`, { method: "DELETE" });
-    const data = await response.json().catch(() => ({ error: "服务器返回了非 JSON 错误，请检查服务端日志。" }));
+    const text = await response.text();
+    let data: { error?: string; success?: boolean } = {};
+
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = {};
+    }
 
     if (!response.ok) {
-      setError(data.error ?? "删除部件失败。");
+      const nextError = data.error ?? "\u5220\u9664\u90e8\u4ef6\u5931\u8d25";
+      window.alert(nextError);
+      setError(nextError);
       return;
     }
 
     if (editingPartId === part.id) {
       resetPartForm();
     }
-    refreshWithMessage("部件已删除。");
+    window.alert("\u5220\u9664\u6210\u529f");
+    refreshWithMessage("\u90e8\u4ef6\u5df2\u5220\u9664\u3002");
   }
-
   async function uploadDrawings(event: React.FormEvent<HTMLFormElement>, part: ProductPart) {
     event.preventDefault();
     setMessage("");
@@ -750,6 +801,9 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                       <div className="flex flex-wrap gap-2">
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditProduct(product)}>编辑</button>
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button>
+                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-60" disabled={wholePartProductId === product.id} onClick={() => createWholeProductPart(product)}>
+                          {wholePartProductId === product.id ? "处理中" : "设为整件产品"}
+                        </button>
                         <Link className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={`/kitting?productId=${product.id}`}>齐套检查</Link>
                         <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteProduct(product)}>删除</button>
                       </div>
