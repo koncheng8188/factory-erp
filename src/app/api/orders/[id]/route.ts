@@ -57,6 +57,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     await prisma.$transaction([
+      prisma.productPart.deleteMany({ where: { orderId: id } }),
       prisma.product.deleteMany({ where: { orderId: id } }),
       prisma.order.delete({ where: { id } })
     ]);

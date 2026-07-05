@@ -49,7 +49,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 export async function DELETE(_request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
-    await prisma.product.delete({ where: { id } });
+    await prisma.$transaction([
+      prisma.productPart.deleteMany({ where: { productId: id } }),
+      prisma.product.delete({ where: { id } })
+    ]);
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "删除产品失败。" }, { status: 500 });

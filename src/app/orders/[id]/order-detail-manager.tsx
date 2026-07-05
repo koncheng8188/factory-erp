@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 
 type Customer = {
   id: string;
@@ -9,6 +9,24 @@ type Customer = {
   contact: string | null;
   phone: string | null;
   address: string | null;
+};
+
+type ProductPart = {
+  id: string;
+  partName: string;
+  partCode: string | null;
+  specification: string | null;
+  material: string | null;
+  unitQuantity: number;
+  productQuantity: number;
+  totalQuantity: number;
+  surfaceTreatment: string | null;
+  color: string | null;
+  outsourcedQuantity: number;
+  returnedQuantity: number;
+  missingQuantity: number;
+  status: string;
+  remark: string | null;
 };
 
 type Product = {
@@ -20,6 +38,7 @@ type Product = {
   surfaceTreatment: string | null;
   status: string;
   remark: string | null;
+  parts: ProductPart[];
 };
 
 type OrderDetail = {
@@ -27,8 +46,8 @@ type OrderDetail = {
   orderNo: string;
   customerId: string;
   customerName: string;
-  orderDate: Date;
-  deliveryDate: Date | null;
+  orderDate: Date | string;
+  deliveryDate: Date | string | null;
   status: string;
   remark: string | null;
   customer: Customer;
@@ -52,6 +71,18 @@ type ProductForm = {
   remark: string;
 };
 
+type PartForm = {
+  partName: string;
+  partCode: string;
+  specification: string;
+  material: string;
+  unitQuantity: string;
+  productQuantity: string;
+  surfaceTreatment: string;
+  color: string;
+  remark: string;
+};
+
 const orderStatuses = ["PENDING", "PRODUCING", "OUTSOURCING", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED", "ABNORMAL"];
 
 const emptyProductForm: ProductForm = {
@@ -63,6 +94,20 @@ const emptyProductForm: ProductForm = {
   remark: ""
 };
 
+function emptyPartForm(productQuantity = 1): PartForm {
+  return {
+    partName: "",
+    partCode: "",
+    specification: "",
+    material: "",
+    unitQuantity: "1",
+    productQuantity: String(productQuantity),
+    surfaceTreatment: "",
+    color: "",
+    remark: ""
+  };
+}
+
 function toDateInputValue(value: Date | string | null) {
   if (!value) return "";
   const date = new Date(value);
@@ -73,6 +118,15 @@ function toDateInputValue(value: Date | string | null) {
 function formatDate(value: Date | string | null) {
   const input = toDateInputValue(value);
   return input || "-";
+}
+
+function calculatedTotalQuantity(form: PartForm) {
+  const unitQuantity = Number(form.unitQuantity);
+  const productQuantity = Number(form.productQuantity);
+  if (!Number.isInteger(unitQuantity) || !Number.isInteger(productQuantity)) {
+    return 0;
+  }
+  return unitQuantity * productQuantity;
 }
 
 export function OrderDetailManager({ order, customers }: { order: OrderDetail; customers: Customer[] }) {
@@ -87,8 +141,13 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
   });
   const [productForm, setProductForm] = useState<ProductForm>(emptyProductForm);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [activePartProductId, setActivePartProductId] = useState<string | null>(null);
+  const [editingPartId, setEditingPartId] = useState<string | null>(null);
+  const [partForm, setPartForm] = useState<PartForm>(emptyPartForm());
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  const partTotalQuantity = useMemo(() => calculatedTotalQuantity(partForm), [partForm]);
 
   function updateOrderField(field: keyof OrderForm, value: string) {
     setOrderForm((current) => ({ ...current, [field]: value }));
@@ -96,6 +155,10 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
 
   function updateProductField(field: keyof ProductForm, value: string) {
     setProductForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updatePartField(field: keyof PartForm, value: string) {
+    setPartForm((current) => ({ ...current, [field]: value }));
   }
 
   function refreshWithMessage(nextMessage: string) {
@@ -118,7 +181,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(orderForm)
     });
-    const data = await response.json().catch(() => ({}));
+    const data = await response.json().catch(() => ({ error: "服务器返回了非 JSON 错误，请检查服务端日志。" }));
 
     if (!response.ok) {
       setError(data.error ?? "保存订单失败。");
@@ -167,7 +230,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(productForm)
     });
-    const data = await response.json().catch(() => ({}));
+    const data = await response.json().catch(() => ({ error: "服务器返回了非 JSON 错误，请检查服务端日志。" }));
 
     if (!response.ok) {
       setError(data.error ?? "保存产品失败。");
@@ -186,7 +249,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
     setMessage("");
     setError("");
     const response = await fetch(`/api/products/${product.id}`, { method: "DELETE" });
-    const data = await response.json().catch(() => ({}));
+    const data = await response.json().catch(() => ({ error: "服务器返回了非 JSON 错误，请检查服务端日志。" }));
 
     if (!response.ok) {
       setError(data.error ?? "删除产品失败。");
@@ -196,11 +259,165 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
     refreshWithMessage("产品已删除。");
   }
 
+  function startAddPart(product: Product) {
+    setActivePartProductId(product.id);
+    setEditingPartId(null);
+    setPartForm(emptyPartForm(product.quantity));
+    setMessage("");
+    setError("");
+  }
+
+  function startEditPart(product: Product, part: ProductPart) {
+    setActivePartProductId(product.id);
+    setEditingPartId(part.id);
+    setPartForm({
+      partName: part.partName,
+      partCode: part.partCode ?? "",
+      specification: part.specification ?? "",
+      material: part.material ?? "",
+      unitQuantity: String(part.unitQuantity),
+      productQuantity: String(part.productQuantity),
+      surfaceTreatment: part.surfaceTreatment ?? "",
+      color: part.color ?? "",
+      remark: part.remark ?? ""
+    });
+    setMessage("");
+    setError("");
+  }
+
+  function resetPartForm() {
+    setActivePartProductId(null);
+    setEditingPartId(null);
+    setPartForm(emptyPartForm());
+  }
+
+  async function savePart(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    setError("");
+
+    if (!activePartProductId) {
+      setError("请先选择产品。");
+      return;
+    }
+    if (!partForm.partName.trim()) {
+      setError("部件名称不能为空。");
+      return;
+    }
+    if (Number(partForm.unitQuantity) <= 0) {
+      setError("单套用量必须大于 0。");
+      return;
+    }
+    if (Number(partForm.productQuantity) <= 0) {
+      setError("产品数量必须大于 0。");
+      return;
+    }
+    if (partTotalQuantity < 0) {
+      setError("应加工数量不能为负数。");
+      return;
+    }
+
+    const response = await fetch(editingPartId ? `/api/parts/${editingPartId}` : `/api/products/${activePartProductId}/parts`, {
+      method: editingPartId ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(partForm)
+    });
+    const data = await response.json().catch(() => ({ error: "服务器返回了非 JSON 错误，请检查服务端日志。" }));
+
+    if (!response.ok) {
+      setError(data.error ?? "保存部件失败。");
+      return;
+    }
+
+    resetPartForm();
+    refreshWithMessage(editingPartId ? "部件已保存。" : "部件已新增。");
+  }
+
+  async function deletePart(part: ProductPart) {
+    if (!window.confirm(`确认删除部件“${part.partName}”吗？`)) {
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    const response = await fetch(`/api/parts/${part.id}`, { method: "DELETE" });
+    const data = await response.json().catch(() => ({ error: "服务器返回了非 JSON 错误，请检查服务端日志。" }));
+
+    if (!response.ok) {
+      setError(data.error ?? "删除部件失败。");
+      return;
+    }
+
+    if (editingPartId === part.id) {
+      resetPartForm();
+    }
+    refreshWithMessage("部件已删除。");
+  }
+
+  function renderPartForm(product: Product) {
+    if (activePartProductId !== product.id) {
+      return null;
+    }
+
+    return (
+      <form className="mt-4 grid gap-4 rounded-md border border-[#d8dde6] bg-[#fbfcfd] p-4 lg:grid-cols-5" onSubmit={savePart}>
+        <label className="block text-sm font-medium">
+          部件名称 <span className="text-red-600">*</span>
+          <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.partName} onChange={(event) => updatePartField("partName", event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">
+          部件编号
+          <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.partCode} onChange={(event) => updatePartField("partCode", event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">
+          规格
+          <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.specification} onChange={(event) => updatePartField("specification", event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">
+          材质
+          <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.material} onChange={(event) => updatePartField("material", event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">
+          单套用量 <span className="text-red-600">*</span>
+          <input type="number" min="1" step="1" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.unitQuantity} onChange={(event) => updatePartField("unitQuantity", event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">
+          产品数量 <span className="text-red-600">*</span>
+          <input type="number" min="1" step="1" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.productQuantity} onChange={(event) => updatePartField("productQuantity", event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">
+          应加工数量
+          <input readOnly className="mt-1 w-full rounded-md border border-[#cfd6e1] bg-[#eef2f6] px-3 py-2" value={partTotalQuantity} />
+        </label>
+        <label className="block text-sm font-medium">
+          表面处理
+          <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.surfaceTreatment} onChange={(event) => updatePartField("surfaceTreatment", event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">
+          颜色要求
+          <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.color} onChange={(event) => updatePartField("color", event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">
+          备注
+          <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.remark} onChange={(event) => updatePartField("remark", event.target.value)} />
+        </label>
+        <div className="flex flex-wrap gap-3 lg:col-span-5">
+          <button className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
+            {editingPartId ? "保存部件" : "新增部件"}
+          </button>
+          <button type="button" className="rounded-md border border-[#cfd6e1] px-4 py-2 text-sm font-medium" onClick={resetPartForm}>
+            取消
+          </button>
+        </div>
+      </form>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <section>
         <h1 className="text-2xl font-semibold">订单详情：{order.orderNo}</h1>
-        <p className="mt-2 text-sm text-[#667085]">查看订单、客户和产品明细。</p>
+        <p className="mt-2 text-sm text-[#667085]">查看订单、客户、产品和部件明细。</p>
       </section>
 
       {message ? <div className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div> : null}
@@ -318,21 +535,87 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
             </thead>
             <tbody>
               {order.products.map((product) => (
-                <tr key={product.id} className="align-top">
-                  <td className="border-b border-[#eef2f6] px-3 py-3 font-medium">{product.productName}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{product.specification || "-"}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{product.material || "-"}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{product.quantity}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{product.surfaceTreatment || "-"}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{product.status}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{product.remark || "-"}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">
-                    <div className="flex gap-2">
-                      <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditProduct(product)}>编辑</button>
-                      <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteProduct(product)}>删除</button>
-                    </div>
-                  </td>
-                </tr>
+                <Fragment key={product.id}>
+                  <tr className="align-top">
+                    <td className="border-b border-[#eef2f6] px-3 py-3 font-medium">{product.productName}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{product.specification || "-"}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{product.material || "-"}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{product.quantity}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{product.surfaceTreatment || "-"}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{product.status}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{product.remark || "-"}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditProduct(product)}>编辑</button>
+                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button>
+                        <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteProduct(product)}>删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border-b border-[#d8dde6] bg-[#fbfcfd] px-3 py-4" colSpan={8}>
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold">部件明细</h3>
+                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button>
+                      </div>
+                      {renderPartForm(product)}
+                      <div className="mt-4 overflow-x-auto">
+                        <table className="w-full min-w-[1320px] border-collapse text-left text-sm">
+                          <thead className="bg-[#eef2f6] text-[#475467]">
+                            <tr>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">部件名称</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">部件编号</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">规格</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">材质</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">单套用量</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">产品数量</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">应加工数量</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">表面处理</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">颜色</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">已外发数量</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">已回数量</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">未回数量</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">状态</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">备注</th>
+                              <th className="border-b border-[#d8dde6] px-3 py-2">操作</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {product.parts.map((part) => (
+                              <tr key={part.id} className="align-top">
+                                <td className="border-b border-[#eef2f6] px-3 py-2 font-medium">{part.partName}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.partCode || "-"}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.specification || "-"}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.material || "-"}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.unitQuantity}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.productQuantity}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.totalQuantity}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.surfaceTreatment || "-"}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.color || "-"}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.outsourcedQuantity}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.returnedQuantity}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.missingQuantity}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.status}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.remark || "-"}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">
+                                  <div className="flex gap-2">
+                                    <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditPart(product, part)}>编辑</button>
+                                    <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deletePart(part)}>删除</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                            {product.parts.length === 0 ? (
+                              <tr>
+                                <td className="px-3 py-5 text-center text-[#667085]" colSpan={15}>暂无部件，请新增部件。</td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                </Fragment>
               ))}
               {order.products.length === 0 ? (
                 <tr>
