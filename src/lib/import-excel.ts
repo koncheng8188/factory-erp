@@ -117,6 +117,10 @@ type DateParseResult = {
   error: string | null;
 };
 
+const MIN_VALID_YEAR = 2000;
+const MAX_VALID_YEAR = 2100;
+const excelSerialDateBase = Date.UTC(1899, 11, 30);
+
 function trimText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -142,19 +146,51 @@ function formatDateInput(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function invalidDateMessage() {
+  return "格式不正确，请使用 2026-07-05 或 Excel 日期格式";
+}
+
+function isValidDateYear(date: Date) {
+  const year = date.getFullYear();
+  return year >= MIN_VALID_YEAR && year <= MAX_VALID_YEAR;
+}
+
+function excelSerialToDate(serial: number) {
+  if (!Number.isFinite(serial) || serial <= 0) return null;
+
+  const wholeDays = Math.floor(serial);
+  return new Date(excelSerialDateBase + wholeDays * 24 * 60 * 60 * 1000);
+}
+
 function parseDateValue(value: string, fallback?: Date): DateParseResult {
   if (!value.trim()) {
     const nextDate = fallback ?? null;
     return { value: nextDate, text: nextDate ? formatDateInput(nextDate) : "", error: null };
   }
 
-  const normalized = value.trim().replace(/\//g, "-");
-  const date = /^\d{4}-\d{1,2}-\d{1,2}$/.test(normalized)
-    ? new Date(`${normalized}T00:00:00`)
-    : new Date(value);
+  const trimmed = value.trim();
+  const serialNumber = Number(trimmed);
+  const date = /^-?\d+(\.\d+)?$/.test(trimmed)
+    ? excelSerialToDate(serialNumber)
+    : (() => {
+      const normalized = trimmed.replace(/[/.]/g, "-");
+      const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (!match) return null;
 
-  if (Number.isNaN(date.getTime())) {
-    return { value: null, text: value.trim(), error: "日期格式无法解析" };
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      const parsed = new Date(year, month - 1, day);
+
+      if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) {
+        return null;
+      }
+
+      return parsed;
+    })();
+
+  if (!date || Number.isNaN(date.getTime()) || !isValidDateYear(date)) {
+    return { value: null, text: trimmed, error: invalidDateMessage() };
   }
 
   return { value: date, text: formatDateInput(date), error: null };
