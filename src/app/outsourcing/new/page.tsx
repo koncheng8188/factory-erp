@@ -5,25 +5,54 @@ import { OutsourceCreateManager } from "./outsource-create-manager";
 
 export const dynamic = "force-dynamic";
 
+function buildSuggestions(values: Array<string | null | undefined>) {
+  const suggestions: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const suggestion = value?.trim();
+    if (!suggestion || seen.has(suggestion)) continue;
+
+    seen.add(suggestion);
+    suggestions.push(suggestion);
+
+    if (suggestions.length >= 30) break;
+  }
+
+  return suggestions;
+}
+
 export default async function NewOutsourceOrderPage() {
-  const orders = await prisma.order.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      products: {
-        orderBy: { createdAt: "desc" },
-        include: {
-          parts: {
-            orderBy: { createdAt: "desc" },
-            include: {
-              drawings: {
-                orderBy: [{ isMain: "desc" }, { version: "desc" }, { createdAt: "desc" }]
+  const [orders, outsourceOrders] = await Promise.all([
+    prisma.order.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        products: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            parts: {
+              orderBy: { createdAt: "desc" },
+              include: {
+                drawings: {
+                  orderBy: [{ isMain: "desc" }, { version: "desc" }, { createdAt: "desc" }]
+                }
               }
             }
           }
         }
       }
-    }
-  });
+    }),
+    prisma.outsourceOrder.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        supplierName: true,
+        handler: true
+      }
+    })
+  ]);
+
+  const supplierSuggestions = buildSuggestions(outsourceOrders.map((order) => order.supplierName));
+  const handlerSuggestions = buildSuggestions(outsourceOrders.map((order) => order.handler));
 
   return (
     <div className="space-y-6">
@@ -33,6 +62,8 @@ export default async function NewOutsourceOrderPage() {
         </Link>
       </div>
       <OutsourceCreateManager
+        supplierSuggestions={supplierSuggestions}
+        handlerSuggestions={handlerSuggestions}
         orders={orders.map((order) => ({
           id: order.id,
           orderNo: order.orderNo,

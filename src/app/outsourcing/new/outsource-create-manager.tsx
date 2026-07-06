@@ -61,6 +61,12 @@ type FormState = {
   remark: string;
 };
 
+type OutsourceCreateManagerProps = {
+  orders: OrderOption[];
+  supplierSuggestions: string[];
+  handlerSuggestions: string[];
+};
+
 function todayInputValue() {
   const today = new Date();
   const year = today.getFullYear();
@@ -109,7 +115,7 @@ function renderDrawingPreview(drawing: DrawingPreview | null) {
   );
 }
 
-export function OutsourceCreateManager({ orders }: { orders: OrderOption[] }) {
+export function OutsourceCreateManager({ orders, supplierSuggestions, handlerSuggestions }: OutsourceCreateManagerProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState<FormState>({
@@ -295,7 +301,12 @@ export function OutsourceCreateManager({ orders }: { orders: OrderOption[] }) {
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
           <label className="block text-sm font-medium">
             外发厂家 <span className="text-red-600">*</span>
-            <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.supplierName} onChange={(event) => updateField("supplierName", event.target.value)} />
+            <input list="supplier-suggestions" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.supplierName} onChange={(event) => updateField("supplierName", event.target.value)} />
+            <datalist id="supplier-suggestions">
+              {supplierSuggestions.map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
+            </datalist>
           </label>
           <label className="block text-sm font-medium">
             外发类型
@@ -315,7 +326,12 @@ export function OutsourceCreateManager({ orders }: { orders: OrderOption[] }) {
           </label>
           <label className="block text-sm font-medium">
             经手人
-            <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.handler} onChange={(event) => updateField("handler", event.target.value)} />
+            <input list="handler-suggestions" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.handler} onChange={(event) => updateField("handler", event.target.value)} />
+            <datalist id="handler-suggestions">
+              {handlerSuggestions.map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
+            </datalist>
           </label>
           <label className="block text-sm font-medium lg:col-span-3">
             备注
