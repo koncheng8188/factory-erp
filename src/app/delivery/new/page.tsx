@@ -9,23 +9,52 @@ type NewDeliveryPageProps = {
   searchParams: Promise<{ orderId?: string }>;
 };
 
+function buildSuggestions(values: Array<string | null | undefined>) {
+  const suggestions: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const suggestion = value?.trim();
+    if (!suggestion || seen.has(suggestion)) continue;
+
+    seen.add(suggestion);
+    suggestions.push(suggestion);
+
+    if (suggestions.length >= 30) break;
+  }
+
+  return suggestions;
+}
+
 export default async function NewDeliveryPage({ searchParams }: NewDeliveryPageProps) {
   const { orderId } = await searchParams;
-  const orders = await prisma.order.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      products: {
-        orderBy: { createdAt: "desc" },
-        include: {
-          deliveryOrderItems: {
-            select: {
-              deliveryQuantity: true
+  const [orders, deliveryOrders] = await Promise.all([
+    prisma.order.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        products: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            deliveryOrderItems: {
+              select: {
+                deliveryQuantity: true
+              }
             }
           }
         }
       }
-    }
-  });
+    }),
+    prisma.deliveryOrder.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        receiver: true,
+        handler: true
+      }
+    })
+  ]);
+
+  const receiverSuggestions = buildSuggestions(deliveryOrders.map((order) => order.receiver));
+  const handlerSuggestions = buildSuggestions(deliveryOrders.map((order) => order.handler));
 
   return (
     <div className="space-y-6">
@@ -36,6 +65,8 @@ export default async function NewDeliveryPage({ searchParams }: NewDeliveryPageP
       </div>
       <DeliveryCreateManager
         initialOrderId={orderId ?? ""}
+        receiverSuggestions={receiverSuggestions}
+        handlerSuggestions={handlerSuggestions}
         orders={orders.map((order) => ({
           id: order.id,
           orderNo: order.orderNo,

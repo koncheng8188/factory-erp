@@ -35,7 +35,19 @@ type FormState = {
   remark: string;
 };
 
-export function DeliveryCreateManager({ orders, initialOrderId }: { orders: OrderOption[]; initialOrderId: string }) {
+type DeliveryCreateManagerProps = {
+  orders: OrderOption[];
+  initialOrderId: string;
+  receiverSuggestions: string[];
+  handlerSuggestions: string[];
+};
+
+export function DeliveryCreateManager({
+  orders,
+  initialOrderId,
+  receiverSuggestions,
+  handlerSuggestions
+}: DeliveryCreateManagerProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState<FormState>({
@@ -211,11 +223,21 @@ export function DeliveryCreateManager({ orders, initialOrderId }: { orders: Orde
           </label>
           <label className="block text-sm font-medium">
             收货人
-            <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.receiver} onChange={(event) => updateField("receiver", event.target.value)} />
+            <input list="receiver-suggestions" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.receiver} onChange={(event) => updateField("receiver", event.target.value)} />
+            <datalist id="receiver-suggestions">
+              {receiverSuggestions.map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
+            </datalist>
           </label>
           <label className="block text-sm font-medium">
             经手人
-            <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.handler} onChange={(event) => updateField("handler", event.target.value)} />
+            <input list="delivery-handler-suggestions" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.handler} onChange={(event) => updateField("handler", event.target.value)} />
+            <datalist id="delivery-handler-suggestions">
+              {handlerSuggestions.map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
+            </datalist>
           </label>
           <label className="block text-sm font-medium lg:col-span-3">
             备注
