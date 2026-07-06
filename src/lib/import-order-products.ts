@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { parseImportPartList } from "@/lib/import-part-list";
 import { calculatePartTotalQuantity } from "@/lib/product-parts";
 
 type ImportClient = PrismaClient | Prisma.TransactionClient;
@@ -133,22 +134,7 @@ function setWarning(rowWarnings: Map<number, string[]>, rowNumber: number, messa
   rowWarnings.set(rowNumber, warnings);
 }
 
-export function parsePartList(partList: string) {
-  return partList
-    .split(/[;；]/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => {
-      const match = item.match(/^(.+?)(?:\s*[*x×]\s*(\d+))?$/i);
-      if (!match) {
-        return { raw: item, partName: "", unitQuantity: Number.NaN };
-      }
-
-      const partName = match[1].trim();
-      const unitQuantity = match[2] ? Number(match[2]) : 1;
-      return { raw: item, partName, unitQuantity };
-    });
-}
+export const parsePartList = parseImportPartList;
 
 export async function parseOrderProductWorkbook(buffer: Buffer): Promise<OrderProductImportRowInput[]> {
   const workbook = new ExcelJS.Workbook();
