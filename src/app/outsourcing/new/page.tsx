@@ -40,6 +40,7 @@ export default async function NewOutsourceOrderPage() {
           products: order.products.map((product) => ({
             id: product.id,
             productName: product.productName,
+            status: product.status,
             specification: product.specification,
             material: product.material,
             quantity: product.quantity,

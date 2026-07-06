@@ -18,8 +18,11 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+class ValidationError extends Error {}
+
 const blockedOutsourceProductStatusList: ProductStatus[] = ["ABNORMAL", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED"];
-const blockedOutsourceOrderStatusList: OrderStatus[] = ["ABNORMAL", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED"];
+const blockedOutsourceOrderStatusList: OrderStatus[] = ["ABNORMAL", "COMPLETED"];
+const preserveOutsourceOrderStatusList: OrderStatus[] = ["WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED", "ABNORMAL"];
 const blockedOutsourceProductStatuses = new Set<ProductStatus>(blockedOutsourceProductStatusList);
 const blockedOutsourceOrderStatuses = new Set<OrderStatus>(blockedOutsourceOrderStatusList);
 
@@ -103,7 +106,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (parts.length !== partIds.length) {
-        throw new Error("部分外发部件不存在，请刷新后重试。");
+        throw new ValidationError("部分外发部件不存在，请刷新后重试。");
       }
 
       const order = await tx.outsourceOrder.create({
@@ -127,21 +130,21 @@ export async function POST(request: NextRequest) {
         if (!item) continue;
 
         if (part.status === "ABNORMAL") {
-          throw new Error(`部件「${part.partName}」状态为 ABNORMAL，不能继续外发。`);
+          throw new ValidationError(`部件【${part.partName}】状态为 ABNORMAL，不能继续外发`);
         }
         if (blockedOutsourceProductStatuses.has(part.product.status)) {
-          throw new Error(`产品「${part.product.productName}」状态为 ${part.product.status}，不能继续外发。`);
+          throw new ValidationError(`产品【${part.product.productName}】状态为 ${part.product.status}，不能继续外发`);
         }
         if (blockedOutsourceOrderStatuses.has(part.order.status)) {
-          throw new Error(`订单「${part.order.orderNo}」状态为 ${part.order.status}，不能继续创建外发单。`);
+          throw new ValidationError(`订单【${part.order.orderNo}】状态为 ${part.order.status}，不能继续创建外发单`);
         }
 
         const availableQuantity = part.totalQuantity - part.outsourcedQuantity;
         if (availableQuantity <= 0) {
-          throw new Error(`部件「${part.partName}」可外发数量不足。`);
+          throw new ValidationError(`部件【${part.partName}】可外发数量不足`);
         }
         if (item.outsourceQuantity > availableQuantity) {
-          throw new Error(`部件「${part.partName}」本次外发数量不能大于可外发数量 ${availableQuantity}。`);
+          throw new ValidationError(`部件【${part.partName}】本次外发数量不能大于可外发数量 ${availableQuantity}`);
         }
 
         const drawing = pickOutsourceDrawing(part.drawings);
@@ -179,7 +182,7 @@ export async function POST(request: NextRequest) {
           }
         });
         if (updatedPart.count !== 1) {
-          throw new Error(`部件「${part.partName}」状态已变更，不能继续外发。`);
+          throw new ValidationError(`部件【${part.partName}】状态已变更，不能继续外发`);
         }
 
         productIds.add(part.productId);
@@ -196,7 +199,7 @@ export async function POST(request: NextRequest) {
       await tx.order.updateMany({
         where: {
           id: { in: Array.from(orderIds) },
-          status: { notIn: blockedOutsourceOrderStatusList }
+          status: { notIn: preserveOutsourceOrderStatusList }
         },
         data: { status: "OUTSOURCING" }
       });
@@ -206,6 +209,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ outsourceOrder });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "创建外发单失败。") }, { status: 500 });
+    const status = error instanceof ValidationError ? 400 : 500;
+    return NextResponse.json({ error: errorMessage(error, "创建外发单失败。") }, { status });
   }
 }

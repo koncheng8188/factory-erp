@@ -33,6 +33,7 @@ type PartOption = {
 type ProductOption = {
   id: string;
   productName: string;
+  status: string;
   specification: string | null;
   material: string | null;
   quantity: number;
@@ -70,6 +71,22 @@ function todayInputValue() {
 
 function availableQuantity(part: PartOption) {
   return part.totalQuantity - part.outsourcedQuantity;
+}
+
+const blockedProductStatuses = new Set(["ABNORMAL", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED"]);
+
+function productCannotOutsourceReason(product: ProductOption) {
+  return blockedProductStatuses.has(product.status) ? `状态为 ${product.status}，不能继续外发` : "";
+}
+
+function partCannotOutsourceReason(part: PartOption) {
+  if (part.status === "ABNORMAL") {
+    return "状态为 ABNORMAL，不能继续外发";
+  }
+  if (availableQuantity(part) <= 0) {
+    return "没有可外发数量";
+  }
+  return "";
 }
 
 function renderDrawingPreview(drawing: DrawingPreview | null) {
@@ -156,6 +173,11 @@ export function OutsourceCreateManager({ orders }: { orders: OrderOption[] }) {
       setError("请先选择产品。");
       return;
     }
+    const productReason = productCannotOutsourceReason(selectedProduct);
+    if (productReason) {
+      setError(`产品「${selectedProduct.productName}」${productReason}`);
+      return;
+    }
     if (checkedPartIds.length === 0) {
       setError("请先勾选需要外发的部件。");
       return;
@@ -166,6 +188,11 @@ export function OutsourceCreateManager({ orders }: { orders: OrderOption[] }) {
       const part = selectedProduct.parts.find((item) => item.id === partId);
       if (!part) continue;
 
+      const partReason = partCannotOutsourceReason(part);
+      if (partReason) {
+        setError(`部件「${part.partName}」${partReason}`);
+        return;
+      }
       const available = availableQuantity(part);
       const outsourceQuantity = Number(quantityByPartId[part.id] || "0");
       if (!Number.isInteger(outsourceQuantity) || outsourceQuantity <= 0) {
@@ -313,9 +340,14 @@ export function OutsourceCreateManager({ orders }: { orders: OrderOption[] }) {
             产品
             <select className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={selectedProductId} onChange={(event) => changeProduct(event.target.value)} disabled={!selectedOrder}>
               <option value="">请选择产品</option>
-              {selectedOrder?.products.map((product) => (
-                <option key={product.id} value={product.id}>{product.productName}</option>
-              ))}
+              {selectedOrder?.products.map((product) => {
+                const reason = productCannotOutsourceReason(product);
+                return (
+                  <option key={product.id} value={product.id} disabled={Boolean(reason)}>
+                    {product.productName}{reason ? `（${reason}）` : ""}
+                  </option>
+                );
+              })}
             </select>
           </label>
         </div>
@@ -344,7 +376,8 @@ export function OutsourceCreateManager({ orders }: { orders: OrderOption[] }) {
             <tbody>
               {selectedProduct?.parts.map((part) => {
                 const available = availableQuantity(part);
-                const disabled = available <= 0;
+                const disabledReason = partCannotOutsourceReason(part);
+                const disabled = Boolean(disabledReason);
                 return (
                   <tr key={part.id} className="align-top">
                     <td className="border-b border-[#eef2f6] px-3 py-2">
@@ -362,7 +395,7 @@ export function OutsourceCreateManager({ orders }: { orders: OrderOption[] }) {
                     <td className="border-b border-[#eef2f6] px-3 py-2">{part.totalQuantity}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-2">{part.outsourcedQuantity}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-2">{part.returnedQuantity}</td>
-                    <td className="border-b border-[#eef2f6] px-3 py-2">{available}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-2">{disabledReason || available}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-2">
                       <input
                         type="number"
