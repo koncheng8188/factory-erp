@@ -163,6 +163,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
   const [uploadingPartId, setUploadingPartId] = useState<string | null>(null);
   const [wholePartProductId, setWholePartProductId] = useState<string | null>(null);
+  const [productionCompleteProductId, setProductionCompleteProductId] = useState<string | null>(null);
   const [createdWholePartProductIds, setCreatedWholePartProductIds] = useState<string[]>([]);
   const [partForm, setPartForm] = useState<PartForm>(emptyPartForm());
   const [message, setMessage] = useState("");
@@ -321,6 +322,44 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
       window.alert(requestError instanceof Error ? requestError.message : "设为整件产品失败");
     } finally {
       setWholePartProductId(null);
+    }
+  }
+
+  async function markProductionComplete(product: Product) {
+    if (!window.confirm("\u786e\u8ba4\u5c06\u8be5\u4ea7\u54c1\u6807\u8bb0\u4e3a\u751f\u4ea7\u5b8c\u6210\u5e76\u8fdb\u5165\u5f85\u9001\u8d27\u5417\uff1f")) {
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    setProductionCompleteProductId(product.id);
+
+    try {
+      const response = await fetch(`/api/products/${product.id}/mark-production-complete`, { method: "POST" });
+      const text = await response.text();
+      let data: { error?: string; success?: boolean } = {};
+
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = {};
+      }
+
+      if (!response.ok) {
+        const nextError = data.error ?? "\u6807\u8bb0\u751f\u4ea7\u5b8c\u6210\u5931\u8d25";
+        window.alert(nextError);
+        setError(nextError);
+        return;
+      }
+
+      window.alert("\u5df2\u6807\u8bb0\u751f\u4ea7\u5b8c\u6210");
+      refreshWithMessage("\u5df2\u6807\u8bb0\u751f\u4ea7\u5b8c\u6210\u3002");
+    } catch (requestError) {
+      const nextError = requestError instanceof Error ? requestError.message : "\u6807\u8bb0\u751f\u4ea7\u5b8c\u6210\u5931\u8d25";
+      window.alert(nextError);
+      setError(nextError);
+    } finally {
+      setProductionCompleteProductId(null);
     }
   }
 
@@ -803,6 +842,9 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button>
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-60" disabled={wholePartProductId === product.id} onClick={() => createWholeProductPart(product)}>
                           {wholePartProductId === product.id ? "处理中" : "设为整件产品"}
+                        </button>
+                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-60" disabled={productionCompleteProductId === product.id} onClick={() => markProductionComplete(product)}>
+                          {productionCompleteProductId === product.id ? "\u5904\u7406\u4e2d" : "\u6807\u8bb0\u751f\u4ea7\u5b8c\u6210"}
                         </button>
                         <Link className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={`/kitting?productId=${product.id}`}>齐套检查</Link>
                         <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteProduct(product)}>删除</button>
