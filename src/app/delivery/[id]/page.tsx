@@ -33,12 +33,19 @@ export default async function DeliveryDetailPage({ params }: DeliveryDetailPageP
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-3">
-        <Link className="text-sm font-medium text-[#475467] hover:text-[#172033]" href="/delivery">
-          返回送货单列表
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#d8dde6] bg-white px-4 py-3">
+        <Link className="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50" href="/delivery">
+          ← 返回送货单列表
         </Link>
-        <Link className="text-sm font-medium text-[#475467] hover:text-[#172033]" href={`/orders/${deliveryOrder.orderId}`}>
-          查看订单
+        <Link className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100" href={`/orders/${deliveryOrder.orderId}`}>
+          查看关联订单
+        </Link>
+        <Link
+          className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold !text-white shadow-sm hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+          href={`/delivery/${deliveryOrder.id}/print`}
+          style={{ color: "#ffffff" }}
+        >
+          🖨 打印送货单
         </Link>
       </div>
 
