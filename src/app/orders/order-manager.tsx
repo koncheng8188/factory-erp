@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { getOrderStatusLabel, orderStatusOptions } from "@/lib/order-status";
 
 type Customer = {
   id: string;
@@ -29,7 +30,12 @@ type OrderForm = {
   remark: string;
 };
 
-const orderStatuses = ["PENDING", "PRODUCING", "OUTSOURCING", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED", "ABNORMAL"];
+type OrderFilters = {
+  keyword: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+};
 
 function todayInputValue() {
   const today = new Date();
@@ -61,11 +67,12 @@ function emptyForm(): OrderForm {
   };
 }
 
-export function OrderManager({ orders, customers }: { orders: Order[]; customers: Customer[] }) {
+export function OrderManager({ orders, customers, filters }: { orders: Order[]; customers: Customer[]; filters: OrderFilters }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<OrderForm>(emptyForm);
+  const [filterForm, setFilterForm] = useState<OrderFilters>(filters);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -73,6 +80,29 @@ export function OrderManager({ orders, customers }: { orders: Order[]; customers
 
   function updateField(field: keyof OrderForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateFilterField(field: keyof OrderFilters, value: string) {
+    setFilterForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function submitFilters(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const params = new URLSearchParams();
+    const keyword = filterForm.keyword.trim();
+
+    if (keyword) params.set("keyword", keyword);
+    if (filterForm.status) params.set("status", filterForm.status);
+    if (filterForm.startDate) params.set("startDate", filterForm.startDate);
+    if (filterForm.endDate) params.set("endDate", filterForm.endDate);
+
+    const queryString = params.toString();
+    startTransition(() => router.push(queryString ? `/orders?${queryString}` : "/orders"));
+  }
+
+  function clearFilters() {
+    setFilterForm({ keyword: "", status: "", startDate: "", endDate: "" });
+    startTransition(() => router.push("/orders"));
   }
 
   function startEdit(order: Order) {
@@ -171,9 +201,9 @@ export function OrderManager({ orders, customers }: { orders: Order[]; customers
           <label className="block text-sm font-medium">
             订单状态
             <select className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.status} onChange={(event) => updateField("status", event.target.value)}>
-              {orderStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {status}
+              {orderStatusOptions.map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
                 </option>
               ))}
             </select>
@@ -199,6 +229,60 @@ export function OrderManager({ orders, customers }: { orders: Order[]; customers
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
         <h2 className="text-lg font-semibold">订单列表</h2>
+        <form className="mt-4 rounded-lg border border-[#d8dde6] bg-white p-4 shadow-sm" onSubmit={submitFilters}>
+          <div className="grid gap-3 md:grid-cols-5">
+            <label className="block text-sm font-medium md:col-span-2">
+              关键词
+              <input
+                className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2"
+                placeholder="搜索订单号、客户名称、产品名称"
+                value={filterForm.keyword}
+                onChange={(event) => updateFilterField("keyword", event.target.value)}
+              />
+            </label>
+            <label className="block text-sm font-medium">
+              订单状态
+              <select
+                className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2"
+                value={filterForm.status}
+                onChange={(event) => updateFilterField("status", event.target.value)}
+              >
+                <option value="">全部状态</option>
+                {orderStatusOptions.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium">
+              开始日期
+              <input
+                type="date"
+                className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2"
+                value={filterForm.startDate}
+                onChange={(event) => updateFilterField("startDate", event.target.value)}
+              />
+            </label>
+            <label className="block text-sm font-medium">
+              结束日期
+              <input
+                type="date"
+                className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2"
+                value={filterForm.endDate}
+                onChange={(event) => updateFilterField("endDate", event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
+              搜索
+            </button>
+            <button type="button" className="rounded-md border border-[#cfd6e1] px-4 py-2 text-sm font-medium disabled:opacity-60" onClick={clearFilters} disabled={isPending}>
+              清空筛选
+            </button>
+          </div>
+        </form>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[980px] border-collapse text-left text-sm">
             <thead className="bg-[#f6f7f9] text-[#475467]">
@@ -220,7 +304,7 @@ export function OrderManager({ orders, customers }: { orders: Order[]; customers
                   <td className="border-b border-[#eef2f6] px-3 py-3">{order.customerName}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">{formatDate(order.orderDate)}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">{formatDate(order.deliveryDate)}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{order.status}</td>
+                  <td className="border-b border-[#eef2f6] px-3 py-3">{getOrderStatusLabel(order.status)}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">{order._count.products}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">{order.remark || "-"}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">
