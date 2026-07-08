@@ -658,7 +658,8 @@ export default async function DashboardPage() {
     { label: "回厂登记", href: "/returns" },
     { label: "齐套检查", href: "/kitting" },
     { label: "送货管理", href: "/delivery" },
-    { label: "图纸管理", href: "/drawings" }
+    { label: "图纸管理", href: "/drawings" },
+    { label: "系统备份", href: "/settings/backup" }
   ];
 
   return (
