@@ -6,6 +6,22 @@ import { useRouter } from "next/navigation";
 import { Fragment, useState } from "react";
 import { getProductStatusLabel, productionStageGroups } from "@/lib/product-status";
 
+type StageFilter =
+  | "all"
+  | "cutting"
+  | "welding"
+  | "polishing"
+  | "waitOutsource"
+  | "outsourcing"
+  | "partialReturn"
+  | "returned"
+  | "waitDelivery"
+  | "partialDelivered"
+  | "completed"
+  | "abnormal";
+
+type QuickFilter = "all" | "todo" | "abnormal" | "waitOutsource" | "outsourcing" | "waitDelivery";
+
 type ProductionPart = {
   id: string;
   partCode: string | null;
@@ -41,7 +57,11 @@ type ProductionProduct = {
 
 type ProductionManagerProps = {
   products: ProductionProduct[];
-  keyword: string;
+  filters: {
+    keyword: string;
+    stage: StageFilter;
+    quick: QuickFilter;
+  };
 };
 
 type FlowState =
@@ -65,6 +85,30 @@ type FlowCells = {
   returning: FlowState;
   delivery: FlowState;
 };
+
+const stageOptions: { value: StageFilter; label: string }[] = [
+  { value: "all", label: "全部阶段" },
+  { value: "cutting", label: "下料中" },
+  { value: "welding", label: "焊接中" },
+  { value: "polishing", label: "抛光中" },
+  { value: "waitOutsource", label: "待外发" },
+  { value: "outsourcing", label: "外发中" },
+  { value: "partialReturn", label: "部分回厂" },
+  { value: "returned", label: "已回厂" },
+  { value: "waitDelivery", label: "待送货" },
+  { value: "partialDelivered", label: "部分送货" },
+  { value: "completed", label: "已完成" },
+  { value: "abnormal", label: "异常" }
+];
+
+const quickOptions: { value: QuickFilter; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "todo", label: "只看待办" },
+  { value: "abnormal", label: "只看异常" },
+  { value: "waitOutsource", label: "只看待外发" },
+  { value: "outsourcing", label: "只看外发中" },
+  { value: "waitDelivery", label: "只看待送货" }
+];
 
 const flowColumns: { key: keyof FlowCells; label: string }[] = [
   { key: "cutting", label: "下料" },
@@ -194,7 +238,7 @@ function StatCard({ title, value }: { title: string; value: number }) {
   );
 }
 
-export function ProductionManager({ products, keyword }: ProductionManagerProps) {
+export function ProductionManager({ products, filters }: ProductionManagerProps) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -259,15 +303,35 @@ export function ProductionManager({ products, keyword }: ProductionManagerProps)
       </section>
 
       <section className="rounded-lg border border-[#d8dde6] bg-white p-5 shadow-sm">
-        <form className="grid gap-4 md:grid-cols-[1fr_auto_auto]" action="/production">
+        <form className="grid gap-4 lg:grid-cols-[1fr_220px_220px_auto_auto]" action="/production">
           <label className="block text-sm font-medium">
             关键词
             <input
               className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2"
               name="keyword"
               placeholder="订单号、客户、产品、规格、材质、表面处理、颜色、部件"
-              defaultValue={keyword}
+              defaultValue={filters.keyword}
             />
+          </label>
+          <label className="block text-sm font-medium">
+            流程阶段
+            <select className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" name="stage" defaultValue={filters.stage}>
+              {stageOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm font-medium">
+            快捷筛选
+            <select className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" name="quick" defaultValue={filters.quick}>
+              {quickOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           <div className="flex items-end">
             <button className="w-full rounded-md bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#344054]">
