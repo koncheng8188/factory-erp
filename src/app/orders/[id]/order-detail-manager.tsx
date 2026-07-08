@@ -6,6 +6,19 @@ import { useRouter } from "next/navigation";
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { getProductPartStatusLabel } from "@/lib/product-part-status";
 import { getProductStatusLabel } from "@/lib/product-status";
+import {
+  badge,
+  buttonPrimary,
+  card,
+  cardTitle,
+  pageDescription,
+  table,
+  tableCell,
+  tableHead,
+  tableHeaderCell,
+  tableRow,
+  tableWrapper
+} from "@/lib/ui-styles";
 
 type Customer = {
   id: string;
@@ -239,7 +252,7 @@ function progressStatusClass(value: FlowState) {
 
 function ProgressBadge({ value }: { value: FlowState }) {
   return (
-    <span className={`inline-flex min-w-16 justify-center rounded-md border px-2 py-1 text-xs font-semibold ${progressStatusClass(value)}`}>
+    <span className={`${badge} ${progressStatusClass(value)}`}>
       {value}
     </span>
   );
@@ -276,14 +289,14 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
 
   function renderProductionProgress() {
     return (
-      <section className="rounded-lg border border-[#d8dde6] bg-white p-5 shadow-sm">
+      <section className={`${card} p-5`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">生产进度</h2>
-            <p className="mt-1 text-sm text-[#667085]">查看该订单下产品和部件的下料、焊接、抛光、外发、回厂、送货进度。</p>
+            <h2 className={cardTitle}>生产进度</h2>
+            <p className={pageDescription}>查看该订单下产品和部件的下料、焊接、抛光、外发、回厂、送货进度。</p>
           </div>
           <Link
-            className="inline-flex items-center justify-center rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#344054] hover:text-white !text-white"
+            className={`${buttonPrimary} !text-white`}
             href={productionProgressHref}
           >
             进入生产进度
@@ -293,7 +306,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
         {order.products.length === 0 ? (
           <div className="mt-4 rounded-md bg-[#fbfcfd] px-3 py-6 text-center text-sm text-[#667085]">暂无生产进度，请先添加产品和部件。</div>
         ) : (
-          <div className="mt-4 space-y-4">
+          <div className="mt-5 space-y-4">
             {order.products.map((product) => {
               const partCount = product.parts.length;
               const drawingCount = product.parts.reduce((sum, part) => sum + part.drawings.length, 0);
@@ -302,8 +315,8 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
               const missingTotal = product.parts.reduce((sum, part) => sum + part.missingQuantity, 0);
 
               return (
-                <div key={product.id} className="overflow-hidden rounded-lg border border-[#d8dde6]">
-                  <div className="bg-[#f6f7f9] px-4 py-3">
+                <div key={product.id} className="overflow-hidden rounded-lg border border-[#d8dde6] bg-white">
+                  <div className="bg-[#f6f7f9] px-4 py-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <div className="font-semibold text-[#172033]">{product.productName}</div>
@@ -316,29 +329,29 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                       </span>
                     </div>
                     <div className="mt-3 grid gap-2 text-xs text-[#475467] sm:grid-cols-3 xl:grid-cols-6">
-                      <div>部件数量：{partCount}</div>
-                      <div>图纸数量：{drawingCount}</div>
-                      <div>外发总数：{outsourcedTotal}</div>
-                      <div>回厂总数：{returnedTotal}</div>
-                      <div>未回总数：{missingTotal}</div>
-                      <div>表面处理：{formatEmpty(product.surfaceTreatment)}</div>
+                      <div className="rounded-md bg-white px-3 py-2">部件数量：<span className="font-semibold text-[#172033]">{partCount}</span></div>
+                      <div className="rounded-md bg-white px-3 py-2">图纸数量：<span className="font-semibold text-[#172033]">{drawingCount}</span></div>
+                      <div className="rounded-md bg-white px-3 py-2">外发总数：<span className="font-semibold text-[#172033]">{outsourcedTotal}</span></div>
+                      <div className="rounded-md bg-white px-3 py-2">回厂总数：<span className="font-semibold text-[#172033]">{returnedTotal}</span></div>
+                      <div className="rounded-md bg-white px-3 py-2">未回总数：<span className="font-semibold text-[#172033]">{missingTotal}</span></div>
+                      <div className="rounded-md bg-white px-3 py-2">表面处理：<span className="font-semibold text-[#172033]">{formatEmpty(product.surfaceTreatment)}</span></div>
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1320px] border-collapse text-left text-xs">
-                      <thead className="bg-white text-[#475467]">
+                  <div className={`${tableWrapper} rounded-none border-0 border-t border-[#d8dde6]`}>
+                    <table className={`${table} min-w-[1320px] text-xs`}>
+                      <thead className={tableHead}>
                         <tr>
-                          <th className="border-b border-[#eef2f6] px-3 py-2">部件编号</th>
-                          <th className="border-b border-[#eef2f6] px-3 py-2">部件名称</th>
-                          <th className="border-b border-[#eef2f6] px-3 py-2">总数量</th>
-                          <th className="border-b border-[#eef2f6] px-3 py-2">图纸</th>
-                          <th className="border-b border-[#eef2f6] px-3 py-2">已外发</th>
-                          <th className="border-b border-[#eef2f6] px-3 py-2">已回</th>
-                          <th className="border-b border-[#eef2f6] px-3 py-2">未回</th>
-                          <th className="border-b border-[#eef2f6] px-3 py-2">当前阶段</th>
+                          <th className={tableHeaderCell}>部件编号</th>
+                          <th className={tableHeaderCell}>部件名称</th>
+                          <th className={tableHeaderCell}>总数量</th>
+                          <th className={tableHeaderCell}>图纸</th>
+                          <th className={tableHeaderCell}>已外发</th>
+                          <th className={tableHeaderCell}>已回</th>
+                          <th className={tableHeaderCell}>未回</th>
+                          <th className={tableHeaderCell}>当前阶段</th>
                           {progressFlowColumns.map((column) => (
-                            <th key={column.key} className="border-b border-[#eef2f6] px-3 py-2">
+                            <th key={column.key} className={tableHeaderCell}>
                               {column.label}
                             </th>
                           ))}
@@ -348,17 +361,17 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                         {product.parts.map((part) => {
                           const flow = getPartProductionFlow(part.status, product.status);
                           return (
-                            <tr key={part.id} className="bg-[#fbfcfd] align-top">
-                              <td className="border-b border-[#eef2f6] px-3 py-2">{formatEmpty(part.partCode)}</td>
-                              <td className="border-b border-[#eef2f6] px-3 py-2 font-medium text-[#172033]">{part.partName}</td>
-                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.totalQuantity}</td>
-                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.drawings.length}</td>
-                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.outsourcedQuantity}</td>
-                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.returnedQuantity}</td>
-                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.missingQuantity}</td>
-                              <td className="border-b border-[#eef2f6] px-3 py-2 font-semibold">{getProductPartStatusLabel(part.status)}</td>
+                            <tr key={part.id} className={`${tableRow} bg-white`}>
+                              <td className={tableCell}>{formatEmpty(part.partCode)}</td>
+                              <td className={`${tableCell} font-medium text-[#172033]`}>{part.partName}</td>
+                              <td className={tableCell}>{part.totalQuantity}</td>
+                              <td className={tableCell}>{part.drawings.length}</td>
+                              <td className={tableCell}>{part.outsourcedQuantity}</td>
+                              <td className={tableCell}>{part.returnedQuantity}</td>
+                              <td className={tableCell}>{part.missingQuantity}</td>
+                              <td className={`${tableCell} font-semibold`}>{getProductPartStatusLabel(part.status)}</td>
                               {progressFlowColumns.map((column) => (
-                                <td key={column.key} className="border-b border-[#eef2f6] px-3 py-2">
+                                <td key={column.key} className={tableCell}>
                                   <ProgressBadge value={flow[column.key]} />
                                 </td>
                               ))}

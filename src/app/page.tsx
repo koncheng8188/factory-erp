@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { prisma } from "@/lib/prisma";
 import { outsourceTypeLabels } from "@/lib/outsource";
 import { getOrderStatusLabel } from "@/lib/order-status";
+import { card, pageDescription, pageHeader, pageShell, pageTitle, sectionTitle, statCard } from "@/lib/ui-styles";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +112,7 @@ function StatCard({
   return (
     <Link
       href={href}
-      className={`block rounded-md border p-5 transition hover:-translate-y-0.5 hover:border-[#98a2b3] hover:shadow-sm ${toneClass}`}
+      className={`block rounded-lg border p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#98a2b3] hover:shadow-md ${toneClass}`}
     >
       <div className="text-sm font-medium text-[#667085]">{title}</div>
       <div className={`mt-3 text-3xl font-semibold ${valueClass}`}>{value}</div>
@@ -154,7 +155,7 @@ function TodoCard({
   }[tone];
 
   return (
-    <section className={`rounded-md border bg-white p-4 shadow-sm ${toneClass}`}>
+    <section className={`rounded-lg border bg-white p-4 shadow-sm ${toneClass}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold">{title}</h3>
@@ -663,17 +664,19 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <section>
-        <h1 className="text-2xl font-semibold">金鸿 ERP 首页看板</h1>
-        <p className="mt-2 text-sm text-[#667085]">
+    <div className={pageShell}>
+      <section className={pageHeader}>
+        <div>
+          <h1 className={pageTitle}>金鸿 ERP 首页看板</h1>
+          <p className={pageDescription}>
           汇总订单、生产、外发、回厂、齐套、送货和图纸的关键提醒。
-        </p>
+          </p>
+        </div>
       </section>
 
       {statGroups.map((group) => (
         <section key={group.title} className="space-y-3">
-          <h2 className="text-lg font-semibold">{group.title}</h2>
+          <h2 className={sectionTitle}>{group.title}</h2>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {group.cards.map((card) => (
               <StatCard key={card.title} {...card} />
@@ -685,7 +688,7 @@ export default async function DashboardPage() {
       <section className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">今日待办</h2>
+            <h2 className={sectionTitle}>今日待办</h2>
             <p className="mt-1 text-sm text-[#667085]">优先处理超期、异常、待回厂、待送货和资料缺失事项。</p>
           </div>
         </div>
@@ -815,9 +818,9 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-md border border-[#d8dde6] bg-white p-5">
+      <section className={`${card} p-5`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">订单状态统计</h2>
+          <h2 className={sectionTitle}>订单状态统计</h2>
           <Link className="text-sm font-medium text-[#475467] hover:text-[#172033]" href="/orders">
             查看订单
           </Link>
@@ -827,7 +830,7 @@ export default async function DashboardPage() {
             <Link
               key={status}
               href="/orders"
-              className="rounded-md border border-[#d8dde6] bg-[#f6f7f9] p-4 transition hover:border-[#98a2b3] hover:bg-white"
+              className={statCard}
             >
               <div className="break-words text-xs font-medium text-[#667085]">{getOrderStatusLabel(status)}</div>
               <div className="mt-2 text-2xl font-semibold">{orderStatusCountMap.get(status) ?? 0}</div>
@@ -836,14 +839,14 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-md border border-[#d8dde6] bg-white p-5">
-        <h2 className="text-lg font-semibold">快捷入口</h2>
+      <section className={`${card} p-5`}>
+        <h2 className={sectionTitle}>快捷入口</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {quickLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="rounded-md border border-[#cfd6e1] px-4 py-3 text-sm font-medium transition hover:border-[#98a2b3] hover:bg-[#f6f7f9]"
+              className="rounded-lg border border-[#cfd6e1] bg-white px-4 py-3 text-sm font-semibold text-[#344054] shadow-sm transition hover:border-[#98a2b3] hover:bg-[#f6f7f9]"
             >
               {link.label}
             </Link>

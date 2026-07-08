@@ -3,8 +3,27 @@
 import type { ProductPartStatus, ProductStatus } from "@prisma/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { getProductStatusLabel, productionStageGroups } from "@/lib/product-status";
+import {
+  badge,
+  buttonPrimary,
+  buttonSecondary,
+  filterBar,
+  input,
+  pageDescription,
+  pageHeader,
+  pageShell,
+  pageTitle,
+  select,
+  statCard,
+  table,
+  tableCell,
+  tableHead,
+  tableHeaderCell,
+  tableRow,
+  tableWrapper
+} from "@/lib/ui-styles";
 
 type StageFilter =
   | "all"
@@ -119,6 +138,13 @@ const flowColumns: { key: keyof FlowCells; label: string }[] = [
   { key: "delivery", label: "送货" }
 ];
 
+const productionTableWidthClass = "min-w-[1540px]";
+const stickyInfoHeaderClass = "sticky left-0 top-0 z-30 w-[300px] border-b border-r border-[#d8dde6] bg-[#f6f7f9] px-3 py-3";
+const stickyInfoCellClass = "sticky left-0 z-20 w-[300px] border-b border-r border-[#eef2f6] px-3 py-3";
+const stickyTableHeaderCellClass = "sticky top-0 z-20 border-b border-[#d8dde6] bg-[#f6f7f9] px-3 py-3";
+const compactHeaderCellClass = "sticky top-0 z-20 w-20 border-b border-[#d8dde6] bg-[#f6f7f9] px-2 py-3 text-center";
+const compactCellClass = "w-20 border-b border-[#eef2f6] px-2 py-2 text-center";
+
 const productFlowByStatus: Record<ProductStatus, FlowCells> = {
   PENDING: { cutting: "进行中", welding: "未开始", polishing: "未开始", outsourcing: "未开始", returning: "未开始", delivery: "未开始" },
   CUTTING: { cutting: "进行中", welding: "未开始", polishing: "未开始", outsourcing: "未开始", returning: "未开始", delivery: "未开始" },
@@ -223,7 +249,7 @@ function statusClass(value: FlowState) {
 
 function FlowBadge({ value }: { value: FlowState }) {
   return (
-    <span className={`inline-flex min-w-16 justify-center rounded-md border px-2 py-1 text-xs font-semibold ${statusClass(value)}`}>
+    <span className={`${badge} min-w-14 px-2 py-1 text-xs ${statusClass(value)}`}>
       {value}
     </span>
   );
@@ -231,7 +257,7 @@ function FlowBadge({ value }: { value: FlowState }) {
 
 function StatCard({ title, value }: { title: string; value: number }) {
   return (
-    <div className="rounded-lg border border-[#d8dde6] bg-white p-4 shadow-sm">
+    <div className={statCard}>
       <div className="text-sm font-medium text-[#667085]">{title}</div>
       <div className="mt-2 text-2xl font-semibold text-[#172033]">{value}</div>
     </div>
@@ -240,9 +266,31 @@ function StatCard({ title, value }: { title: string; value: number }) {
 
 export function ProductionManager({ products, filters }: ProductionManagerProps) {
   const router = useRouter();
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const floatingScrollRef = useRef<HTMLDivElement | null>(null);
+  const syncingScrollRef = useRef(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [updatingPartId, setUpdatingPartId] = useState<string | null>(null);
+
+  function syncHorizontalScroll(source: "table" | "floating") {
+    if (syncingScrollRef.current) return;
+
+    const scrollRefs = {
+      table: tableScrollRef,
+      floating: floatingScrollRef
+    };
+    const sourceElement = scrollRefs[source].current;
+    if (!sourceElement) return;
+
+    syncingScrollRef.current = true;
+    Object.entries(scrollRefs).forEach(([key, ref]) => {
+      if (key !== source && ref.current) {
+        ref.current.scrollLeft = sourceElement.scrollLeft;
+      }
+    });
+    syncingScrollRef.current = false;
+  }
 
   async function advancePart(part: ProductionPart) {
     setMessage("");
@@ -270,7 +318,7 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
     if (advanceLabel) {
       return (
         <button
-          className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#344054] disabled:opacity-60"
+          className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#344054] hover:text-white disabled:opacity-60"
           disabled={updatingPartId === part.id}
           onClick={() => advancePart(part)}
         >
@@ -300,21 +348,21 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
   const printTime = new Date().toLocaleString("zh-CN", { hour12: false });
 
   return (
-    <div className="space-y-6">
-      <section className="no-print flex flex-wrap items-start justify-between gap-3">
+    <div className={`${pageShell} pb-14`}>
+      <section className={`no-print ${pageHeader}`}>
         <div>
-          <h1 className="text-2xl font-semibold">生产进度</h1>
-          <p className="mt-2 text-sm text-[#667085]">以产品为单位查看全流程进度，生产推进操作由部件子行驱动。</p>
+          <h1 className={pageTitle}>生产进度</h1>
+          <p className={pageDescription}>以产品为单位查看全流程进度，生产推进操作由部件子行驱动。</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <Link
-            className="rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold text-[#344054] shadow-sm hover:bg-[#f6f7f9]"
+            className={buttonSecondary}
             href="/production/daily"
           >
             生产日报
           </Link>
           <button
-            className="rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#344054] hover:text-white"
+            className={buttonPrimary}
             type="button"
             onClick={() => window.print()}
           >
@@ -323,12 +371,12 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
         </div>
       </section>
 
-      <section className="no-print rounded-lg border border-[#d8dde6] bg-white p-5 shadow-sm">
+      <section className={`no-print ${filterBar}`}>
         <form className="grid gap-4 lg:grid-cols-[1fr_220px_220px_auto_auto]" action="/production">
           <label className="block text-sm font-medium">
             关键词
             <input
-              className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2"
+              className={input}
               name="keyword"
               placeholder="订单号、客户、产品、规格、材质、表面处理、颜色、部件"
               defaultValue={filters.keyword}
@@ -336,7 +384,7 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
           </label>
           <label className="block text-sm font-medium">
             流程阶段
-            <select className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" name="stage" defaultValue={filters.stage}>
+            <select className={select} name="stage" defaultValue={filters.stage}>
               {stageOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -346,7 +394,7 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
           </label>
           <label className="block text-sm font-medium">
             快捷筛选
-            <select className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" name="quick" defaultValue={filters.quick}>
+            <select className={select} name="quick" defaultValue={filters.quick}>
               {quickOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -355,12 +403,12 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
             </select>
           </label>
           <div className="flex items-end">
-            <button className="w-full rounded-md bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#344054]">
+            <button className={`w-full ${buttonPrimary}`}>
               查询
             </button>
           </div>
           <div className="flex items-end">
-            <Link className="w-full rounded-md border border-[#cfd6e1] px-4 py-2 text-center text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]" href="/production">
+            <Link className={`w-full ${buttonSecondary}`} href="/production">
               清空
             </Link>
           </div>
@@ -377,23 +425,21 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
         ))}
       </section>
 
-      <section className="no-print rounded-lg border border-[#d8dde6] bg-white p-4 shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1780px] border-collapse text-left text-sm">
-            <thead className="bg-[#f6f7f9] text-[#475467]">
+      <section className="no-print">
+        <div ref={tableScrollRef} className={`${tableWrapper} production-table-scroll`} onScroll={() => syncHorizontalScroll("table")}>
+          <table className={`${table} ${productionTableWidthClass}`}>
+            <thead className={tableHead}>
               <tr>
-                <th className="border-b border-[#d8dde6] px-2 py-2">订单 / 部件编号</th>
-                <th className="border-b border-[#d8dde6] px-2 py-2">客户 / 部件名称</th>
-                <th className="border-b border-[#d8dde6] px-2 py-2">产品 / 总数</th>
-                <th className="border-b border-[#d8dde6] px-2 py-2">规格 / 图纸</th>
-                <th className="border-b border-[#d8dde6] px-2 py-2">数量 / 外发</th>
-                <th className="border-b border-[#d8dde6] px-2 py-2">汇总 / 回厂</th>
+                <th className={stickyInfoHeaderClass}>订单 / 产品 / 部件</th>
+                <th className={stickyTableHeaderCellClass}>规格 / 图纸</th>
+                <th className={stickyTableHeaderCellClass}>数量 / 外发</th>
+                <th className={stickyTableHeaderCellClass}>汇总 / 回厂</th>
                 {flowColumns.map((column) => (
-                  <th key={column.key} className="border-b border-[#d8dde6] px-2 py-2">{column.label}</th>
+                  <th key={column.key} className={compactHeaderCellClass}>{column.label}</th>
                 ))}
-                <th className="border-b border-[#d8dde6] px-2 py-2">当前阶段</th>
-                <th className="border-b border-[#d8dde6] px-2 py-2">操作</th>
-                <th className="border-b border-[#d8dde6] px-2 py-2">查看订单</th>
+                <th className={compactHeaderCellClass}>当前阶段</th>
+                <th className={stickyTableHeaderCellClass}>操作</th>
+                <th className={stickyTableHeaderCellClass}>查看订单</th>
               </tr>
             </thead>
             <tbody>
@@ -401,13 +447,15 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
                 const productFlow = productFlowByStatus[product.status];
                 return (
                   <Fragment key={product.id}>
-                    <tr className="align-top bg-white">
-                      <td className="border-t border-[#d8dde6] px-2 py-2 font-semibold">{product.orderNo}</td>
-                      <td className="border-t border-[#d8dde6] px-2 py-2">{product.customerName}</td>
-                      <td className="border-t border-[#d8dde6] px-2 py-2 font-semibold">{product.productName}</td>
-                      <td className="border-t border-[#d8dde6] px-2 py-2">{formatEmpty(product.specification)}</td>
-                      <td className="border-t border-[#d8dde6] px-2 py-2">{product.quantity}</td>
-                      <td className="border-t border-[#d8dde6] px-2 py-2 text-xs leading-5">
+                    <tr className={`${tableRow} bg-[#f8fafc] font-medium`}>
+                      <td className={`${stickyInfoCellClass} bg-[#f8fafc]`}>
+                        <div className="font-semibold text-[#172033]">{product.orderNo}</div>
+                        <div className="mt-1 text-xs font-medium text-[#475467]">{product.customerName}</div>
+                        <div className="mt-1 text-sm font-semibold text-[#172033]">{product.productName}</div>
+                      </td>
+                      <td className={tableCell}>{formatEmpty(product.specification)}</td>
+                      <td className={tableCell}>{product.quantity}</td>
+                      <td className={`${tableCell} text-xs leading-5 text-[#475467]`}>
                         <div>材质：{formatEmpty(product.material)}</div>
                         <div>表面：{formatEmpty(product.surfaceTreatment)}</div>
                         <div>颜色：{product.colors.length ? product.colors.join("、") : "-"}</div>
@@ -415,14 +463,14 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
                         <div>外发/回厂/未回：{product.outsourcedTotal}/{product.returnedTotal}/{product.missingTotal}</div>
                       </td>
                       {flowColumns.map((column) => (
-                        <td key={column.key} className="border-t border-[#d8dde6] px-2 py-2">
+                        <td key={column.key} className={compactCellClass}>
                           <FlowBadge value={productFlow[column.key]} />
                         </td>
                       ))}
-                      <td className="border-t border-[#d8dde6] px-2 py-2 font-semibold">{getProductStatusLabel(product.status)}</td>
-                      <td className="border-t border-[#d8dde6] px-2 py-2 text-[#667085]">由部件同步</td>
-                      <td className="border-t border-[#d8dde6] px-2 py-2">
-                        <Link className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm font-medium text-[#344054] hover:bg-[#f6f7f9]" href={`/orders/${product.orderId}`}>
+                      <td className={`${compactCellClass} font-semibold`}>{getProductStatusLabel(product.status)}</td>
+                      <td className={`${tableCell} text-[#667085]`}>由部件同步</td>
+                      <td className={tableCell}>
+                        <Link className="rounded-md border border-[#cfd6e1] bg-white px-3 py-1.5 text-sm font-medium text-[#344054] hover:bg-[#f6f7f9]" href={`/orders/${product.orderId}`}>
                           查看订单
                         </Link>
                       </td>
@@ -431,31 +479,32 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
                       product.parts.map((part) => {
                         const flow = partFlow(part, product.status);
                         return (
-                          <tr key={part.id} className="bg-[#fbfcfd] align-top text-xs">
-                            <td className="border-t border-[#eef2f6] px-2 py-2 pl-6 text-[#475467]">{formatEmpty(part.partCode)}</td>
-                            <td className="border-t border-[#eef2f6] px-2 py-2 font-medium">{part.partName}</td>
-                            <td className="border-t border-[#eef2f6] px-2 py-2">{part.totalQuantity}</td>
-                            <td className="border-t border-[#eef2f6] px-2 py-2">{part.drawingCount}</td>
-                            <td className="border-t border-[#eef2f6] px-2 py-2">{part.outsourcedQuantity}</td>
-                            <td className="border-t border-[#eef2f6] px-2 py-2">
+                          <tr key={part.id} className="bg-white align-top text-xs transition hover:bg-[#fbfcfd]">
+                            <td className={`${stickyInfoCellClass} bg-white pl-7`}>
+                              <div className="text-[#667085]">部件编号：{formatEmpty(part.partCode)}</div>
+                              <div className="mt-1 font-semibold text-[#172033]">{part.partName}</div>
+                            </td>
+                            <td className="border-b border-[#eef2f6] px-3 py-2">{part.drawingCount}</td>
+                            <td className="border-b border-[#eef2f6] px-3 py-2">{part.totalQuantity} / {part.outsourcedQuantity}</td>
+                            <td className="border-b border-[#eef2f6] px-3 py-2 text-[#475467]">
                               <div>已回：{part.returnedQuantity}</div>
                               <div>未回：{part.missingQuantity}</div>
                               <div>{part.statusLabel}</div>
                             </td>
                             {flowColumns.map((column) => (
-                              <td key={column.key} className="border-t border-[#eef2f6] px-2 py-2">
+                              <td key={column.key} className={compactCellClass}>
                                 <FlowBadge value={flow[column.key]} />
                               </td>
                             ))}
-                            <td className="border-t border-[#eef2f6] px-2 py-2">{part.statusLabel}</td>
-                            <td className="border-t border-[#eef2f6] px-2 py-2">{renderPartAction(part)}</td>
-                            <td className="border-t border-[#eef2f6] px-2 py-2 text-[#667085]">-</td>
+                            <td className={compactCellClass}>{part.statusLabel}</td>
+                            <td className="border-b border-[#eef2f6] px-3 py-2">{renderPartAction(part)}</td>
+                            <td className="border-b border-[#eef2f6] px-3 py-2 text-[#667085]">-</td>
                           </tr>
                         );
                       })
                     ) : (
                       <tr className="bg-[#fbfcfd] text-xs">
-                        <td className="border-t border-[#eef2f6] px-2 py-3 pl-6 text-[#667085]" colSpan={15}>暂无部件</td>
+                        <td className="border-t border-[#eef2f6] px-2 py-3 pl-6 text-[#667085]" colSpan={13}>暂无部件</td>
                       </tr>
                     )}
                   </Fragment>
@@ -463,7 +512,7 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
               })}
               {products.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-8 text-center text-[#667085]" colSpan={15}>
+                  <td className="px-3 py-8 text-center text-[#667085]" colSpan={13}>
                     暂无生产进度数据。
                   </td>
                 </tr>
@@ -472,6 +521,19 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
           </table>
         </div>
       </section>
+
+      <div className="no-print fixed bottom-0 left-0 right-0 z-40 border-t border-[#d8dde6] bg-white/95 px-4 py-2 shadow-lg backdrop-blur md:left-64">
+        <div className="mx-auto grid max-w-[1680px] gap-1 sm:grid-cols-[88px_1fr] sm:items-center">
+          <div className="text-xs font-medium text-[#667085]">横向滚动</div>
+          <div
+            ref={floatingScrollRef}
+            className="h-3 overflow-x-auto overflow-y-hidden"
+            onScroll={() => syncHorizontalScroll("floating")}
+          >
+            <div className={`h-1 ${productionTableWidthClass}`} />
+          </div>
+        </div>
+      </div>
 
       <section className="print-only hidden">
         <div className="mb-4 text-center">
@@ -575,6 +637,14 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
       </section>
 
       <style>{`
+        .production-table-scroll {
+          scrollbar-width: none;
+        }
+
+        .production-table-scroll::-webkit-scrollbar {
+          display: none;
+        }
+
         @page {
           size: A4 landscape;
           margin: 10mm;
