@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { OrderStatus, ProductStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { syncProductStatusFromParts } from "@/lib/product-progress";
 import {
   formatOutsourceDate,
   isOutsourceType,
@@ -189,13 +190,9 @@ export async function POST(request: NextRequest) {
         orderIds.add(part.orderId);
       }
 
-      await tx.product.updateMany({
-        where: {
-          id: { in: Array.from(productIds) },
-          status: { notIn: blockedOutsourceProductStatusList }
-        },
-        data: { status: "OUTSOURCING" }
-      });
+      for (const productId of productIds) {
+        await syncProductStatusFromParts(tx, productId);
+      }
       await tx.order.updateMany({
         where: {
           id: { in: Array.from(orderIds) },

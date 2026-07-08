@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { OrderStatus, ProductStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { refreshKittingForProducts } from "@/lib/kitting";
 import { normalizeOptional, parseDate } from "@/lib/outsource";
+import { syncProductStatusFromParts } from "@/lib/product-progress";
 import { resolveOutsourceItemStatus, resolvePartStatus } from "@/lib/returns";
 
 type RawReturnItem = {
@@ -273,7 +273,9 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      await refreshKittingForProducts(tx, Array.from(affectedProductIds));
+      for (const productId of affectedProductIds) {
+        await syncProductStatusFromParts(tx, productId);
+      }
 
       return outsourceReturn;
     });
