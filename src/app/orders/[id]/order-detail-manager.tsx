@@ -1,8 +1,11 @@
 "use client";
 
+import type { ProductPartStatus, ProductStatus } from "@prisma/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useMemo, useState, useTransition } from "react";
+import { getProductPartStatusLabel } from "@/lib/product-part-status";
+import { getProductStatusLabel } from "@/lib/product-status";
 
 type Customer = {
   id: string;
@@ -26,7 +29,7 @@ type ProductPart = {
   outsourcedQuantity: number;
   returnedQuantity: number;
   missingQuantity: number;
-  status: string;
+  status: ProductPartStatus;
   remark: string | null;
   drawings: PartDrawing[];
 };
@@ -53,7 +56,7 @@ type Product = {
   material: string | null;
   quantity: number;
   surfaceTreatment: string | null;
-  status: string;
+  status: ProductStatus;
   remark: string | null;
   parts: ProductPart[];
 };
@@ -147,6 +150,101 @@ function calculatedTotalQuantity(form: PartForm) {
   return unitQuantity * productQuantity;
 }
 
+type FlowState = "未开始" | "进行中" | "已完成" | "待外发" | "外发中" | "已外发" | "部分回厂" | "已回厂" | "待送货" | "部分送货" | "异常";
+
+type ProgressFlow = {
+  cutting: FlowState;
+  welding: FlowState;
+  polishing: FlowState;
+  outsourcing: FlowState;
+  returning: FlowState;
+  delivery: FlowState;
+};
+
+const progressFlowColumns: { key: keyof ProgressFlow; label: string }[] = [
+  { key: "cutting", label: "下料" },
+  { key: "welding", label: "焊接" },
+  { key: "polishing", label: "抛光" },
+  { key: "outsourcing", label: "外发" },
+  { key: "returning", label: "回厂" },
+  { key: "delivery", label: "送货" }
+];
+
+function formatEmpty(value: string | number | null | undefined) {
+  return value === null || value === undefined || value === "" ? "-" : value;
+}
+
+function getPartProductionFlow(partStatus: string, productStatus: string): ProgressFlow {
+  let cutting: FlowState = "未开始";
+  let welding: FlowState = "未开始";
+  let polishing: FlowState = "未开始";
+  let outsourcing: FlowState = "未开始";
+  let returning: FlowState = "未开始";
+
+  if (partStatus === "PENDING" || partStatus === "CUTTING") {
+    cutting = "进行中";
+  } else if (partStatus === "WELDING") {
+    cutting = "已完成";
+    welding = "进行中";
+  } else if (partStatus === "POLISHING") {
+    cutting = "已完成";
+    welding = "已完成";
+    polishing = "进行中";
+  } else if (partStatus === "WAIT_OUTSOURCE") {
+    cutting = "已完成";
+    welding = "已完成";
+    polishing = "已完成";
+    outsourcing = "待外发";
+  } else if (partStatus === "OUTSOURCING") {
+    cutting = "已完成";
+    welding = "已完成";
+    polishing = "已完成";
+    outsourcing = "外发中";
+  } else if (partStatus === "PARTIAL_RETURN") {
+    cutting = "已完成";
+    welding = "已完成";
+    polishing = "已完成";
+    outsourcing = "已外发";
+    returning = "部分回厂";
+  } else if (partStatus === "RETURNED") {
+    cutting = "已完成";
+    welding = "已完成";
+    polishing = "已完成";
+    outsourcing = "已外发";
+    returning = "已回厂";
+  } else if (partStatus === "ABNORMAL") {
+    cutting = "异常";
+    welding = "异常";
+    polishing = "异常";
+    outsourcing = "异常";
+    returning = "异常";
+  }
+
+  let delivery: FlowState = "未开始";
+  if (productStatus === "WAIT_DELIVERY") delivery = "待送货";
+  if (productStatus === "PARTIAL_DELIVERED") delivery = "部分送货";
+  if (productStatus === "COMPLETED") delivery = "已完成";
+  if (productStatus === "ABNORMAL") delivery = "异常";
+
+  return { cutting, welding, polishing, outsourcing, returning, delivery };
+}
+
+function progressStatusClass(value: FlowState) {
+  if (value === "已完成" || value === "已回厂" || value === "已外发") return "border-green-200 bg-green-50 text-green-700";
+  if (value === "进行中" || value === "外发中") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (value === "待外发" || value === "待送货" || value === "部分回厂" || value === "部分送货") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (value === "异常") return "border-red-200 bg-red-50 text-red-700";
+  return "border-[#d8dde6] bg-[#f6f7f9] text-[#667085]";
+}
+
+function ProgressBadge({ value }: { value: FlowState }) {
+  return (
+    <span className={`inline-flex min-w-16 justify-center rounded-md border px-2 py-1 text-xs font-semibold ${progressStatusClass(value)}`}>
+      {value}
+    </span>
+  );
+}
+
 export function OrderDetailManager({ order, customers }: { order: OrderDetail; customers: Customer[] }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -174,6 +272,115 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
     () => order.products.some((product) => product.status === "WAIT_DELIVERY" || product.status === "PARTIAL_DELIVERED"),
     [order.products]
   );
+  const productionProgressHref = `/production?keyword=${encodeURIComponent(order.orderNo)}`;
+
+  function renderProductionProgress() {
+    return (
+      <section className="rounded-lg border border-[#d8dde6] bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">生产进度</h2>
+            <p className="mt-1 text-sm text-[#667085]">查看该订单下产品和部件的下料、焊接、抛光、外发、回厂、送货进度。</p>
+          </div>
+          <Link
+            className="inline-flex items-center justify-center rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#344054] hover:text-white !text-white"
+            href={productionProgressHref}
+          >
+            进入生产进度
+          </Link>
+        </div>
+
+        {order.products.length === 0 ? (
+          <div className="mt-4 rounded-md bg-[#fbfcfd] px-3 py-6 text-center text-sm text-[#667085]">暂无生产进度，请先添加产品和部件。</div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            {order.products.map((product) => {
+              const partCount = product.parts.length;
+              const drawingCount = product.parts.reduce((sum, part) => sum + part.drawings.length, 0);
+              const outsourcedTotal = product.parts.reduce((sum, part) => sum + part.outsourcedQuantity, 0);
+              const returnedTotal = product.parts.reduce((sum, part) => sum + part.returnedQuantity, 0);
+              const missingTotal = product.parts.reduce((sum, part) => sum + part.missingQuantity, 0);
+
+              return (
+                <div key={product.id} className="overflow-hidden rounded-lg border border-[#d8dde6]">
+                  <div className="bg-[#f6f7f9] px-4 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-[#172033]">{product.productName}</div>
+                        <div className="mt-1 text-xs text-[#667085]">
+                          规格：{formatEmpty(product.specification)} · 材质：{formatEmpty(product.material)} · 数量：{product.quantity}
+                        </div>
+                      </div>
+                      <span className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">
+                        {getProductStatusLabel(product.status)}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-xs text-[#475467] sm:grid-cols-3 xl:grid-cols-6">
+                      <div>部件数量：{partCount}</div>
+                      <div>图纸数量：{drawingCount}</div>
+                      <div>外发总数：{outsourcedTotal}</div>
+                      <div>回厂总数：{returnedTotal}</div>
+                      <div>未回总数：{missingTotal}</div>
+                      <div>表面处理：{formatEmpty(product.surfaceTreatment)}</div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[1320px] border-collapse text-left text-xs">
+                      <thead className="bg-white text-[#475467]">
+                        <tr>
+                          <th className="border-b border-[#eef2f6] px-3 py-2">部件编号</th>
+                          <th className="border-b border-[#eef2f6] px-3 py-2">部件名称</th>
+                          <th className="border-b border-[#eef2f6] px-3 py-2">总数量</th>
+                          <th className="border-b border-[#eef2f6] px-3 py-2">图纸</th>
+                          <th className="border-b border-[#eef2f6] px-3 py-2">已外发</th>
+                          <th className="border-b border-[#eef2f6] px-3 py-2">已回</th>
+                          <th className="border-b border-[#eef2f6] px-3 py-2">未回</th>
+                          <th className="border-b border-[#eef2f6] px-3 py-2">当前阶段</th>
+                          {progressFlowColumns.map((column) => (
+                            <th key={column.key} className="border-b border-[#eef2f6] px-3 py-2">
+                              {column.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {product.parts.map((part) => {
+                          const flow = getPartProductionFlow(part.status, product.status);
+                          return (
+                            <tr key={part.id} className="bg-[#fbfcfd] align-top">
+                              <td className="border-b border-[#eef2f6] px-3 py-2">{formatEmpty(part.partCode)}</td>
+                              <td className="border-b border-[#eef2f6] px-3 py-2 font-medium text-[#172033]">{part.partName}</td>
+                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.totalQuantity}</td>
+                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.drawings.length}</td>
+                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.outsourcedQuantity}</td>
+                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.returnedQuantity}</td>
+                              <td className="border-b border-[#eef2f6] px-3 py-2">{part.missingQuantity}</td>
+                              <td className="border-b border-[#eef2f6] px-3 py-2 font-semibold">{getProductPartStatusLabel(part.status)}</td>
+                              {progressFlowColumns.map((column) => (
+                                <td key={column.key} className="border-b border-[#eef2f6] px-3 py-2">
+                                  <ProgressBadge value={flow[column.key]} />
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                        {product.parts.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-5 text-center text-[#667085]" colSpan={14}>该产品暂无部件。</td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    );
+  }
 
   function updateOrderField(field: keyof OrderForm, value: string) {
     setOrderForm((current) => ({ ...current, [field]: value }));
@@ -727,6 +934,8 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
           </dl>
         </div>
       </section>
+
+      {renderProductionProgress()}
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
         <h2 className="text-lg font-semibold">编辑订单基本信息</h2>
