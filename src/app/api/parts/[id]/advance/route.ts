@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getNextPartStatus, syncProductStatusFromParts } from "@/lib/product-progress";
 import { prisma } from "@/lib/prisma";
+import type { ProductPartStatus } from "@prisma/client";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -8,6 +9,19 @@ type RouteContext = {
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function getAdvanceActionName(fromStatus: ProductPartStatus, toStatus: ProductPartStatus) {
+  if ((fromStatus === "PENDING" || fromStatus === "CUTTING") && toStatus === "WELDING") {
+    return "完成下料，进入焊接";
+  }
+  if (fromStatus === "WELDING" && toStatus === "POLISHING") {
+    return "完成焊接，进入抛光";
+  }
+  if (fromStatus === "POLISHING" && toStatus === "WAIT_OUTSOURCE") {
+    return "完成抛光，进入待外发";
+  }
+  return null;
 }
 
 export async function POST(_request: Request, context: RouteContext) {
@@ -19,6 +33,7 @@ export async function POST(_request: Request, context: RouteContext) {
         where: { id },
         select: {
           id: true,
+          orderId: true,
           productId: true,
           status: true
         }
@@ -33,6 +48,11 @@ export async function POST(_request: Request, context: RouteContext) {
         throw new Error("当前部件状态不允许在生产进度页继续推进。");
       }
 
+      const actionName = getAdvanceActionName(part.status, nextStatus);
+      if (!actionName) {
+        throw new Error("当前部件状态推进不支持记录生产日报。");
+      }
+
       const updatedPart = await tx.productPart.update({
         where: { id: part.id },
         data: { status: nextStatus },
@@ -42,10 +62,26 @@ export async function POST(_request: Request, context: RouteContext) {
           status: true
         }
       });
+      const progressLog = await tx.productPartProgressLog.create({
+        data: {
+          productPartId: part.id,
+          productId: part.productId,
+          orderId: part.orderId,
+          fromStatus: part.status,
+          toStatus: nextStatus,
+          actionName
+        },
+        select: {
+          id: true,
+          occurredAt: true,
+          actionName: true
+        }
+      });
       const product = await syncProductStatusFromParts(tx, part.productId);
 
       return {
         part: updatedPart,
+        progressLog,
         product
       };
     });

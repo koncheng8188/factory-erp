@@ -99,14 +99,14 @@ model Customer {
 }
 
 model Order {
-  id                 String               @id @default(cuid())
-  orderNo            String               @unique
+  id                 String                   @id @default(cuid())
+  orderNo            String                   @unique
   customerId         String
-  customer           Customer             @relation(fields: [customerId], references: [id])
+  customer           Customer                 @relation(fields: [customerId], references: [id])
   customerName       String
-  orderDate          DateTime             @default(now())
+  orderDate          DateTime                 @default(now())
   deliveryDate       DateTime?
-  status             OrderStatus          @default(PENDING)
+  status             OrderStatus              @default(PENDING)
   remark             String?
   products           Product[]
   productParts       ProductPart[]
@@ -114,60 +114,85 @@ model Order {
   outsourceItems     OutsourceOrderItem[]
   deliveryOrders     DeliveryOrder[]
   deliveryOrderItems DeliveryOrderItem[]
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  progressLogs       ProductPartProgressLog[]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 }
 
 model Product {
-  id                 String               @id @default(cuid())
+  id                 String                   @id @default(cuid())
   orderId            String
-  order              Order                @relation(fields: [orderId], references: [id])
+  order              Order                    @relation(fields: [orderId], references: [id])
   productName        String
   specification      String?
   material           String?
-  quantity           Int                  @default(1)
+  quantity           Int                      @default(1)
   surfaceTreatment   String?
-  status             ProductStatus        @default(PENDING)
+  status             ProductStatus            @default(PENDING)
   remark             String?
   parts              ProductPart[]
   drawings           PartDrawing[]
   outsourceItems     OutsourceOrderItem[]
   deliveryOrderItems DeliveryOrderItem[]
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  progressLogs       ProductPartProgressLog[]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 
   @@index([orderId])
 }
 
 model ProductPart {
-  id                   String                @id @default(cuid())
+  id                   String                   @id @default(cuid())
   orderId              String
-  order                Order                 @relation(fields: [orderId], references: [id])
+  order                Order                    @relation(fields: [orderId], references: [id])
   productId            String
-  product              Product               @relation(fields: [productId], references: [id])
+  product              Product                  @relation(fields: [productId], references: [id])
   partName             String
   partCode             String?
   specification        String?
   material             String?
-  unitQuantity         Int                   @default(1)
-  productQuantity      Int                   @default(1)
-  totalQuantity        Int                   @default(1)
+  unitQuantity         Int                      @default(1)
+  productQuantity      Int                      @default(1)
+  totalQuantity        Int                      @default(1)
   surfaceTreatment     String?
   color                String?
-  outsourcedQuantity   Int                   @default(0)
-  returnedQuantity     Int                   @default(0)
-  missingQuantity      Int                   @default(0)
-  status               ProductPartStatus     @default(PENDING)
+  outsourcedQuantity   Int                      @default(0)
+  returnedQuantity     Int                      @default(0)
+  missingQuantity      Int                      @default(0)
+  status               ProductPartStatus        @default(PENDING)
   remark               String?
   drawings             PartDrawing[]
   outsourceItems       OutsourceOrderItem[]
   outsourceReturnItems OutsourceReturnItem[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  progressLogs         ProductPartProgressLog[]
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
 
   @@index([orderId])
   @@index([productId])
   @@index([partCode])
+}
+
+model ProductPartProgressLog {
+  id            String            @id @default(cuid())
+  productPartId String
+  productPart   ProductPart       @relation(fields: [productPartId], references: [id])
+  productId     String
+  product       Product           @relation(fields: [productId], references: [id])
+  orderId       String
+  order         Order             @relation(fields: [orderId], references: [id])
+  fromStatus    ProductPartStatus
+  toStatus      ProductPartStatus
+  actionName    String
+  occurredAt    DateTime          @default(now())
+  remark        String?
+  createdAt     DateTime          @default(now())
+
+  @@index([occurredAt])
+  @@index([orderId])
+  @@index([productId])
+  @@index([productPartId])
+  @@index([toStatus, occurredAt])
 }
 
 model PartDrawing {

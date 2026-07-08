@@ -306,13 +306,21 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
           <h1 className="text-2xl font-semibold">生产进度</h1>
           <p className="mt-2 text-sm text-[#667085]">以产品为单位查看全流程进度，生产推进操作由部件子行驱动。</p>
         </div>
-        <button
-          className="rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#344054] hover:text-white"
-          type="button"
-          onClick={() => window.print()}
-        >
-          打印生产跟踪表
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            className="rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold text-[#344054] shadow-sm hover:bg-[#f6f7f9]"
+            href="/production/daily"
+          >
+            生产日报
+          </Link>
+          <button
+            className="rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#344054] hover:text-white"
+            type="button"
+            onClick={() => window.print()}
+          >
+            打印生产跟踪表
+          </button>
+        </div>
       </section>
 
       <section className="no-print rounded-lg border border-[#d8dde6] bg-white p-5 shadow-sm">
