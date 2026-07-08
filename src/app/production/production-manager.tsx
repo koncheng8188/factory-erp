@@ -295,14 +295,27 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
     return <span className="text-sm text-[#667085]">-</span>;
   }
 
+  const stageFilterLabel = filters.stage === "all" ? "全部" : stageOptions.find((option) => option.value === filters.stage)?.label ?? "全部";
+  const quickFilterLabel = filters.quick === "all" ? "全部" : quickOptions.find((option) => option.value === filters.quick)?.label ?? "全部";
+  const printTime = new Date().toLocaleString("zh-CN", { hour12: false });
+
   return (
     <div className="space-y-6">
-      <section>
-        <h1 className="text-2xl font-semibold">生产进度</h1>
-        <p className="mt-2 text-sm text-[#667085]">以产品为单位查看全流程进度，生产推进操作由部件子行驱动。</p>
+      <section className="no-print flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">生产进度</h1>
+          <p className="mt-2 text-sm text-[#667085]">以产品为单位查看全流程进度，生产推进操作由部件子行驱动。</p>
+        </div>
+        <button
+          className="rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#344054] hover:text-white"
+          type="button"
+          onClick={() => window.print()}
+        >
+          打印生产跟踪表
+        </button>
       </section>
 
-      <section className="rounded-lg border border-[#d8dde6] bg-white p-5 shadow-sm">
+      <section className="no-print rounded-lg border border-[#d8dde6] bg-white p-5 shadow-sm">
         <form className="grid gap-4 lg:grid-cols-[1fr_220px_220px_auto_auto]" action="/production">
           <label className="block text-sm font-medium">
             关键词
@@ -346,17 +359,17 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
         </form>
       </section>
 
-      {message ? <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{message}</div> : null}
-      {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      {message ? <div className="no-print rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{message}</div> : null}
+      {error ? <div className="no-print rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <section className="no-print grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <StatCard title="产品总数" value={products.length} />
         {productionStageGroups.map((group) => (
           <StatCard key={group.key} title={group.label} value={products.filter((product) => group.statuses.includes(product.status)).length} />
         ))}
       </section>
 
-      <section className="rounded-lg border border-[#d8dde6] bg-white p-4 shadow-sm">
+      <section className="no-print rounded-lg border border-[#d8dde6] bg-white p-4 shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1780px] border-collapse text-left text-sm">
             <thead className="bg-[#f6f7f9] text-[#475467]">
@@ -451,6 +464,166 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
           </table>
         </div>
       </section>
+
+      <section className="print-only hidden">
+        <div className="mb-4 text-center">
+          <h1 className="text-xl font-bold">金鸿ERP 生产跟踪表</h1>
+          <div className="mt-2 text-xs">
+            <span>打印时间：{printTime}</span>
+            <span className="ml-4">关键词：{filters.keyword || "全部"}</span>
+            <span className="ml-4">阶段：{stageFilterLabel}</span>
+            <span className="ml-4">快捷筛选：{quickFilterLabel}</span>
+          </div>
+        </div>
+        {products.length === 0 ? (
+          <div className="py-8 text-center text-sm">暂无生产进度数据</div>
+        ) : (
+          <table className="production-print-table">
+            <thead>
+              <tr>
+                <th>订单号</th>
+                <th>客户</th>
+                <th>产品名称</th>
+                <th>规格</th>
+                <th>产品数量</th>
+                <th>部件编号</th>
+                <th>部件名称</th>
+                <th>部件总数</th>
+                <th>图纸数</th>
+                <th>已外发</th>
+                <th>已回</th>
+                <th>未回</th>
+                <th>下料</th>
+                <th>焊接</th>
+                <th>抛光</th>
+                <th>外发</th>
+                <th>回厂</th>
+                <th>送货</th>
+                <th>当前阶段</th>
+                <th>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.flatMap((product) => {
+                if (product.parts.length === 0) {
+                  const productFlow = productFlowByStatus[product.status];
+                  return [
+                    <tr key={`${product.id}-empty`}>
+                      <td>{product.orderNo}</td>
+                      <td>{product.customerName}</td>
+                      <td>{product.productName}</td>
+                      <td>{formatEmpty(product.specification)}</td>
+                      <td>{product.quantity}</td>
+                      <td>-</td>
+                      <td>暂无部件</td>
+                      <td>-</td>
+                      <td>{product.drawingCount}</td>
+                      <td>{product.outsourcedTotal}</td>
+                      <td>{product.returnedTotal}</td>
+                      <td>{product.missingTotal}</td>
+                      <td>{productFlow.cutting}</td>
+                      <td>{productFlow.welding}</td>
+                      <td>{productFlow.polishing}</td>
+                      <td>{productFlow.outsourcing}</td>
+                      <td>{productFlow.returning}</td>
+                      <td>{productFlow.delivery}</td>
+                      <td>{getProductStatusLabel(product.status)}</td>
+                      <td>-</td>
+                    </tr>
+                  ];
+                }
+
+                return product.parts.map((part) => {
+                  const flow = partFlow(part, product.status);
+                  return (
+                    <tr key={`${product.id}-${part.id}`}>
+                      <td>{product.orderNo}</td>
+                      <td>{product.customerName}</td>
+                      <td>{product.productName}</td>
+                      <td>{formatEmpty(product.specification)}</td>
+                      <td>{product.quantity}</td>
+                      <td>{formatEmpty(part.partCode)}</td>
+                      <td>{part.partName}</td>
+                      <td>{part.totalQuantity}</td>
+                      <td>{part.drawingCount}</td>
+                      <td>{part.outsourcedQuantity}</td>
+                      <td>{part.returnedQuantity}</td>
+                      <td>{part.missingQuantity}</td>
+                      <td>{flow.cutting}</td>
+                      <td>{flow.welding}</td>
+                      <td>{flow.polishing}</td>
+                      <td>{flow.outsourcing}</td>
+                      <td>{flow.returning}</td>
+                      <td>{flow.delivery}</td>
+                      <td>{part.statusLabel}</td>
+                      <td>-</td>
+                    </tr>
+                  );
+                });
+              })}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <style>{`
+        @page {
+          size: A4 landscape;
+          margin: 10mm;
+        }
+
+        @media print {
+          .no-print,
+          aside,
+          header {
+            display: none !important;
+          }
+
+          .print-only {
+            display: block !important;
+          }
+
+          body {
+            background: white !important;
+            color: #000 !important;
+          }
+
+          main {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
+          .md\\:pl-64 {
+            padding-left: 0 !important;
+          }
+
+          .production-print-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+            line-height: 1.25;
+          }
+
+          .production-print-table th,
+          .production-print-table td {
+            border: 1px solid #000;
+            padding: 4px;
+            vertical-align: top;
+            color: #000;
+          }
+
+          .production-print-table th {
+            background: #f3f4f6 !important;
+            font-weight: 700;
+            text-align: center;
+          }
+
+          .production-print-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+        }
+      `}</style>
     </div>
   );
 }
