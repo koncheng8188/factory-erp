@@ -419,7 +419,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
             <Link className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" href={abnormalListHref}>
               查看异常
             </Link>
-            <Link className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 hover:text-white" href={deliveryCreateHref}>
+            <Link className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white !text-white hover:bg-slate-700 hover:text-white hover:!text-white" href={deliveryCreateHref}>
               新建送货单
             </Link>
           </div>
@@ -1137,9 +1137,17 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
 
   return (
     <div className="space-y-6">
-      <section>
-        <h1 className="text-2xl font-semibold">订单详情：{order.orderNo}</h1>
-        <p className="mt-2 text-sm text-[#667085]">查看订单、客户、产品和部件明细。</p>
+      <section className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">订单详情：{order.orderNo}</h1>
+          <p className="mt-2 text-sm text-[#667085]">查看订单、客户、产品和部件明细。</p>
+        </div>
+        <Link
+          className="inline-flex items-center justify-center rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white !text-white hover:bg-[#344054] hover:text-white hover:!text-white"
+          href={`/orders/${order.id}/print`}
+        >
+          打印生产任务单
+        </Link>
       </section>
 
       {message ? <div className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div> : null}
