@@ -195,6 +195,8 @@ export default async function DashboardPage() {
     partialReturnOutsourceTodoItems,
     abnormalReturnItemCount,
     abnormalReturnTodoItems,
+    openProductionAbnormalCount,
+    openProductionAbnormalItems,
     deliveryTodoProductCount,
     deliveryTodoProducts,
     missingDrawingPartCount,
@@ -415,6 +417,47 @@ export default async function DashboardPage() {
                 orderNo: true
               }
             }
+          }
+        }
+      }
+    }),
+    prisma.productPartAbnormal.count({
+      where: {
+        status: "OPEN"
+      }
+    }),
+    prisma.productPartAbnormal.findMany({
+      where: {
+        status: "OPEN"
+      },
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: 5,
+      select: {
+        id: true,
+        createdAt: true,
+        reason: true,
+        order: {
+          select: {
+            orderNo: true,
+            customerName: true,
+            customer: {
+              select: {
+                name: true
+              }
+            }
+          }
+        },
+        product: {
+          select: {
+            productName: true
+          }
+        },
+        productPart: {
+          select: {
+            partCode: true,
+            partName: true
           }
         }
       }
@@ -762,6 +805,27 @@ export default async function DashboardPage() {
                 <div className="mt-1 font-medium text-red-700">
                   异常 {item.abnormalQuantity} 件 · {item.abnormalReason || "未填写原因"}
                 </div>
+              </Link>
+            ))}
+          </TodoCard>
+
+          <TodoCard title="未处理生产异常" count={openProductionAbnormalCount} href="/production/abnormal?status=open" tone="danger" hasItems={openProductionAbnormalItems.length > 0}>
+            {openProductionAbnormalItems.map((item) => (
+              <Link
+                key={item.id}
+                href="/production/abnormal?status=open"
+                className="block rounded-md border border-red-100 bg-red-50/60 px-3 py-2 text-sm transition hover:border-red-200 hover:bg-red-50"
+              >
+                <div className="font-medium text-[#172033]">
+                  {formatDate(item.createdAt)} · {item.order.orderNo}
+                </div>
+                <div className="mt-1 text-[#667085]">
+                  {item.order.customer.name || item.order.customerName} · {item.product.productName}
+                </div>
+                <div className="mt-1 text-[#667085]">
+                  {item.productPart.partName} · 编号 {item.productPart.partCode || "-"}
+                </div>
+                <div className="mt-1 font-medium text-red-700">{item.reason}</div>
               </Link>
             ))}
           </TodoCard>
