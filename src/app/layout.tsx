@@ -7,19 +7,53 @@ export const metadata: Metadata = {
   description: "五金定制家具工厂订单生产管理系统"
 };
 
-const menuItems = [
-  { href: "/", label: "首页看板" },
-  { href: "/customers", label: "客户管理" },
-  { href: "/orders", label: "订单管理" },
-  { href: "/products", label: "产品管理" },
-  { href: "/parts", label: "部件管理" },
-  { href: "/drawings", label: "图纸管理" },
-  { href: "/production", label: "生产进度" },
-  { href: "/outsourcing", label: "外发电镀" },
-  { href: "/returns", label: "回厂登记" },
-  { href: "/kitting", label: "齐套检查" },
-  { href: "/delivery", label: "送货管理" },
-  { href: "/imports/excel", label: "Excel 导入" }
+const menuGroups = [
+  {
+    title: "首页",
+    items: [{ href: "/", label: "首页看板" }]
+  },
+  {
+    title: "基础资料",
+    items: [
+      { href: "/customers", label: "客户管理" },
+      { href: "/products", label: "产品管理" },
+      { href: "/parts", label: "部件管理" },
+      { href: "/drawings", label: "图纸管理" }
+    ]
+  },
+  {
+    title: "订单生产",
+    items: [
+      { href: "/orders", label: "订单管理" },
+      { href: "/production", label: "生产进度" },
+      { href: "/kitting", label: "齐套检查" }
+    ]
+  },
+  {
+    title: "外发回厂",
+    items: [
+      { href: "/outsourcing", label: "外发电镀" },
+      { href: "/returns", label: "回厂登记" }
+    ]
+  },
+  {
+    title: "送货出库",
+    items: [{ href: "/delivery", label: "送货管理" }]
+  },
+  {
+    title: "报表打印",
+    items: [
+      { href: "/production/daily", label: "生产日报" },
+      { href: "/production/abnormal", label: "生产异常" }
+    ]
+  },
+  {
+    title: "系统工具",
+    items: [
+      { href: "/imports/excel", label: "Excel 导入" },
+      { href: "/settings/backup", label: "系统备份" }
+    ]
+  }
 ];
 
 export default function RootLayout({
@@ -36,15 +70,20 @@ export default function RootLayout({
               <div className="text-xl font-semibold tracking-normal text-[#172033]">金鸿 ERP</div>
               <div className="mt-1 text-sm text-[#667085]">订单生产管理</div>
             </div>
-            <nav className="space-y-1 px-3 py-4">
-              {menuItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="block rounded-md px-3 py-2.5 text-sm font-medium text-[#344054] transition hover:bg-[#eef2f6] hover:text-[#101828]"
-                >
-                  {item.label}
-                </Link>
+            <nav className="space-y-4 px-3 py-4">
+              {menuGroups.map((group) => (
+                <div key={group.title} className="space-y-1">
+                  <div className="px-3 text-xs font-semibold text-[#98a2b3]">{group.title}</div>
+                  {group.items.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="block rounded-md px-3 py-2.5 text-sm font-medium text-[#344054] transition hover:bg-[#eef2f6] hover:text-[#101828]"
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
               ))}
             </nav>
           </aside>

@@ -696,14 +696,19 @@ export default async function DashboardPage() {
     }
   ];
 
-  const quickLinks = [
+  const commonActionLinks = [
     { label: "新建订单", href: "/orders" },
-    { label: "外发电镀", href: "/outsourcing" },
+    { label: "生产进度", href: "/production" },
+    { label: "新建外发单", href: "/outsourcing/new" },
     { label: "回厂登记", href: "/returns" },
-    { label: "齐套检查", href: "/kitting" },
-    { label: "送货管理", href: "/delivery" },
-    { label: "图纸管理", href: "/drawings" },
+    { label: "新建送货单", href: "/delivery/new" },
     { label: "系统备份", href: "/settings/backup" }
+  ];
+
+  const commonPrintLinks = [
+    { label: "生产日报", href: "/production/daily" },
+    { label: "生产异常清单", href: "/production/abnormal" },
+    { label: "生产进度跟踪表", href: "/production" }
   ];
 
   return (
@@ -903,20 +908,37 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className={`${card} p-5`}>
-        <h2 className={sectionTitle}>快捷入口</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {quickLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="rounded-lg border border-[#cfd6e1] bg-white px-4 py-3 text-sm font-semibold text-[#344054] shadow-sm transition hover:border-[#98a2b3] hover:bg-[#f6f7f9]"
-            >
-              {link.label}
-            </Link>
-          ))}
-        </div>
-      </section>
+      <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
+        <section className={`${card} p-5`}>
+          <h2 className={sectionTitle}>常用操作</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {commonActionLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="rounded-lg border border-[#cfd6e1] bg-white px-4 py-3 text-sm font-semibold text-[#344054] shadow-sm transition hover:border-[#98a2b3] hover:bg-[#f6f7f9]"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        <section className={`${card} p-5`}>
+          <h2 className={sectionTitle}>常用打印</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            {commonPrintLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="rounded-lg border border-[#cfd6e1] bg-white px-4 py-3 text-sm font-semibold text-[#344054] shadow-sm transition hover:border-[#98a2b3] hover:bg-[#f6f7f9]"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
