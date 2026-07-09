@@ -16,7 +16,8 @@ function formatTimestamp(date: Date) {
   const day = padNumber(date.getDate());
   const hour = padNumber(date.getHours());
   const minute = padNumber(date.getMinutes());
-  return `${year}${month}${day}_${hour}${minute}`;
+  const second = padNumber(date.getSeconds());
+  return `${year}${month}${day}_${hour}${minute}${second}`;
 }
 
 function errorMessage(error: unknown) {
@@ -39,11 +40,29 @@ async function ensureDirectory(directoryPath: string) {
   }
 }
 
+async function createUniqueBackupDirectory(baseDir: string) {
+  for (let index = 0; index < 100; index += 1) {
+    const candidate = index === 0 ? baseDir : `${baseDir}_${index}`;
+
+    try {
+      await mkdir(candidate, { recursive: false });
+      return candidate;
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? (error as NodeJS.ErrnoException).code : null;
+      if (code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error("备份目录重复次数过多，请稍后重试。");
+}
+
 export async function POST() {
   const projectRoot = process.cwd();
   const databaseSource = path.join(projectRoot, "prisma", "dev.db");
   const uploadsSource = path.join(projectRoot, "public", "uploads");
-  const backupDir = path.join(backupRoot, `backup_${formatTimestamp(new Date())}`);
+  let backupDir = path.join(backupRoot, `backup_${formatTimestamp(new Date())}`);
   const errors: string[] = [];
   let databaseCopied = false;
   let uploadsCopied = false;
@@ -51,7 +70,7 @@ export async function POST() {
 
   try {
     await mkdir(backupRoot, { recursive: true });
-    await mkdir(backupDir, { recursive: false });
+    backupDir = await createUniqueBackupDirectory(backupDir);
   } catch (error) {
     return NextResponse.json(
       {

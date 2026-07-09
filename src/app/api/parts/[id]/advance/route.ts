@@ -35,7 +35,12 @@ export async function POST(_request: Request, context: RouteContext) {
           id: true,
           orderId: true,
           productId: true,
-          status: true
+          status: true,
+          order: {
+            select: {
+              status: true
+            }
+          }
         }
       });
 
@@ -78,6 +83,14 @@ export async function POST(_request: Request, context: RouteContext) {
         }
       });
       const product = await syncProductStatusFromParts(tx, part.productId);
+      const shouldMarkOrderProducing = part.order.status === "PENDING";
+
+      if (shouldMarkOrderProducing) {
+        await tx.order.update({
+          where: { id: part.orderId },
+          data: { status: "PRODUCING" }
+        });
+      }
 
       return {
         part: updatedPart,

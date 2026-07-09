@@ -14,6 +14,8 @@ function parseQuantity(value: unknown) {
   return Number.isInteger(quantity) ? quantity : 0;
 }
 
+const protectedProductDeleteMessage = "该产品已有图纸、生产、外发、回厂、送货或异常记录，不能直接删除。";
+
 export async function PUT(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
@@ -49,6 +51,51 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 export async function DELETE(_request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
+    const product = await prisma.product.findUnique({
+      where: { id },
+      select: { id: true }
+    });
+
+    if (!product) {
+      return NextResponse.json({ error: "产品不存在。" }, { status: 404 });
+    }
+
+    const [
+      drawingCount,
+      progressLogCount,
+      abnormalCount,
+      outsourceItemCount,
+      returnItemCount,
+      deliveryItemCount,
+      progressedPartCount
+    ] = await Promise.all([
+      prisma.partDrawing.count({ where: { productId: id } }),
+      prisma.productPartProgressLog.count({ where: { productId: id } }),
+      prisma.productPartAbnormal.count({ where: { productId: id } }),
+      prisma.outsourceOrderItem.count({ where: { productId: id } }),
+      prisma.outsourceReturnItem.count({ where: { part: { productId: id } } }),
+      prisma.deliveryOrderItem.count({ where: { productId: id } }),
+      prisma.productPart.count({
+        where: {
+          productId: id,
+          OR: [{ outsourcedQuantity: { gt: 0 } }, { returnedQuantity: { gt: 0 } }, { missingQuantity: { gt: 0 } }]
+        }
+      })
+    ]);
+
+    const hasBusinessRecords =
+      drawingCount > 0 ||
+      progressLogCount > 0 ||
+      abnormalCount > 0 ||
+      outsourceItemCount > 0 ||
+      returnItemCount > 0 ||
+      deliveryItemCount > 0 ||
+      progressedPartCount > 0;
+
+    if (hasBusinessRecords) {
+      return NextResponse.json({ error: protectedProductDeleteMessage }, { status: 409 });
+    }
+
     await prisma.$transaction([
       prisma.productPart.deleteMany({ where: { productId: id } }),
       prisma.product.delete({ where: { id } })
