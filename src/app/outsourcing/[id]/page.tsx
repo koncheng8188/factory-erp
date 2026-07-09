@@ -87,13 +87,22 @@ export default async function OutsourceDetailPage({ params }: OutsourceDetailPag
           <h1 className="text-2xl font-semibold">外发单详情：{outsourceOrder.outsourceNo}</h1>
           <p className="mt-2 text-sm text-[#667085]">查看外发单基本信息、部件外发明细和回厂记录。</p>
         </div>
-        <Link
-          href={`/returns/new?outsourceOrderId=${outsourceOrder.id}`}
-          className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
-          style={{ color: "#ffffff" }}
-        >
-          登记回厂
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href={`/outsourcing/${outsourceOrder.id}/print`}
+            className="inline-flex items-center justify-center rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white !text-white hover:bg-[#344054] hover:text-white hover:!text-white"
+            style={{ color: "#ffffff" }}
+          >
+            打印外发单
+          </Link>
+          <Link
+            href={`/returns/new?outsourceOrderId=${outsourceOrder.id}`}
+            className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
+            style={{ color: "#ffffff" }}
+          >
+            登记回厂
+          </Link>
+        </div>
       </section>
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
