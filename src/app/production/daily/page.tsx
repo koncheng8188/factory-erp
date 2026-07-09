@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getProductPartStatusLabel } from "@/lib/product-part-status";
 import { prisma } from "@/lib/prisma";
+import { DailyPrintButton } from "./daily-print-button";
 
 export const dynamic = "force-dynamic";
 
@@ -90,23 +91,27 @@ export default async function ProductionDailyPage({ searchParams }: ProductionDa
   const weldingDoneCount = logs.filter((log) => log.toStatus === "POLISHING").length;
   const polishingDoneCount = logs.filter((log) => log.toStatus === "WAIT_OUTSOURCE").length;
   const today = todayInputValue();
+  const printTime = new Date().toLocaleString("zh-CN", { hour12: false });
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-wrap items-start justify-between gap-4">
+      <section className="no-print flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">生产日报</h1>
           <p className="mt-2 text-sm text-[#667085]">按日期查看部件生产推进完成记录。</p>
         </div>
-        <Link
-          className="inline-flex items-center justify-center rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]"
-          href="/production"
-        >
-          返回生产进度
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <DailyPrintButton />
+          <Link
+            className="inline-flex items-center justify-center rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]"
+            href="/production"
+          >
+            返回生产进度
+          </Link>
+        </div>
       </section>
 
-      <section className="rounded-lg border border-[#d8dde6] bg-white p-5 shadow-sm">
+      <section className="no-print rounded-lg border border-[#d8dde6] bg-white p-5 shadow-sm">
         <form className="flex flex-wrap items-end gap-3" action="/production/daily">
           <label className="block text-sm font-medium">
             日期
@@ -129,14 +134,14 @@ export default async function ProductionDailyPage({ searchParams }: ProductionDa
         </form>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="no-print grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="总记录数" value={logs.length} />
         <StatCard title="下料完成数量" value={cuttingDoneCount} />
         <StatCard title="焊接完成数量" value={weldingDoneCount} />
         <StatCard title="抛光完成数量" value={polishingDoneCount} />
       </section>
 
-      <section className="rounded-lg border border-[#d8dde6] bg-white p-4 shadow-sm">
+      <section className="no-print rounded-lg border border-[#d8dde6] bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">完成记录明细</h2>
           <div className="text-sm text-[#667085]">日期：{selectedDateInput}</div>
@@ -182,6 +187,119 @@ export default async function ProductionDailyPage({ searchParams }: ProductionDa
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="print-only hidden">
+        <div className="mb-4 text-center">
+          <h1 className="text-xl font-bold">金鸿ERP 生产日报</h1>
+          <div className="mt-2 grid grid-cols-3 gap-2 text-left text-xs">
+            <div>日期：{selectedDateInput}</div>
+            <div>打印时间：{printTime}</div>
+            <div>总记录数：{logs.length}</div>
+            <div>下料完成数量：{cuttingDoneCount}</div>
+            <div>焊接完成数量：{weldingDoneCount}</div>
+            <div>抛光完成数量：{polishingDoneCount}</div>
+          </div>
+        </div>
+
+        {logs.length === 0 ? (
+          <div className="py-8 text-center text-sm">暂无生产日报记录</div>
+        ) : (
+          <table className="daily-print-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>订单号</th>
+                <th>客户名称</th>
+                <th>产品名称</th>
+                <th>部件编号</th>
+                <th>部件名称</th>
+                <th>原状态</th>
+                <th>新状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={`print-${log.id}`}>
+                  <td>{formatTime(log.occurredAt)}</td>
+                  <td>{log.order.orderNo}</td>
+                  <td>{log.order.customer.name || log.order.customerName}</td>
+                  <td>{log.product.productName}</td>
+                  <td>{displayValue(log.productPart.partCode)}</td>
+                  <td>{log.productPart.partName}</td>
+                  <td>{getProductPartStatusLabel(log.fromStatus)}</td>
+                  <td>{getProductPartStatusLabel(log.toStatus)}</td>
+                  <td>{log.actionName}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <style>{`
+          .print-only {
+            display: none;
+          }
+
+          @page {
+            size: A4 landscape;
+            margin: 10mm;
+          }
+
+          @media print {
+            .no-print,
+            aside,
+            header {
+              display: none !important;
+            }
+
+            .print-only {
+              display: block !important;
+            }
+
+            body {
+              background: white !important;
+              color: #000 !important;
+            }
+
+            main {
+              width: 100% !important;
+              max-width: none !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+
+            .md\\:pl-64 {
+              padding-left: 0 !important;
+            }
+
+            .daily-print-table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 10px;
+              line-height: 1.25;
+            }
+
+            .daily-print-table th,
+            .daily-print-table td {
+              border: 1px solid #000;
+              padding: 4px;
+              vertical-align: top;
+              color: #000;
+            }
+
+            .daily-print-table th {
+              background: #f3f4f6 !important;
+              font-weight: 700;
+              text-align: center;
+            }
+
+            .daily-print-table tr {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+          }
+        `}</style>
       </section>
     </div>
   );
