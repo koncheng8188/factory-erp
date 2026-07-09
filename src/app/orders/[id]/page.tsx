@@ -21,14 +21,72 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         products: {
           orderBy: { createdAt: "desc" },
           include: {
+            deliveryOrderItems: {
+              select: {
+                deliveryQuantity: true
+              }
+            },
             parts: {
               orderBy: { createdAt: "desc" },
               include: {
                 drawings: {
                   orderBy: [{ isMain: "desc" }, { version: "desc" }, { createdAt: "desc" }]
+                },
+                outsourceItems: {
+                  select: {
+                    outsourceQuantity: true,
+                    returnedQuantity: true,
+                    missingQuantity: true,
+                    status: true
+                  }
+                },
+                outsourceReturnItems: {
+                  select: {
+                    returnQuantity: true,
+                    abnormalQuantity: true
+                  }
+                },
+                abnormals: {
+                  select: {
+                    id: true,
+                    status: true,
+                    reason: true,
+                    createdAt: true,
+                    resolvedAt: true
+                  },
+                  orderBy: { createdAt: "desc" }
                 }
               }
             }
+          }
+        },
+        deliveryOrders: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            deliveryNo: true,
+            deliveryDate: true,
+            status: true,
+            receiver: true,
+            createdAt: true,
+            items: {
+              select: {
+                deliveryQuantity: true,
+                productId: true
+              }
+            }
+          }
+        },
+        partAbnormals: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            status: true,
+            reason: true,
+            createdAt: true,
+            resolvedAt: true,
+            productPartId: true,
+            productId: true
           }
         }
       }
@@ -65,6 +123,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
       surfaceTreatment: product.surfaceTreatment,
       status: product.status,
       remark: product.remark,
+      deliveryOrderItems: product.deliveryOrderItems.map((item) => ({
+        deliveryQuantity: item.deliveryQuantity
+      })),
       parts: product.parts.map((part) => ({
         id: part.id,
         partName: part.partName,
@@ -94,8 +155,46 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           uploadStatus: drawing.uploadStatus,
           errorMessage: drawing.errorMessage,
           remark: drawing.remark
+        })),
+        outsourceItems: part.outsourceItems.map((item) => ({
+          outsourceQuantity: item.outsourceQuantity,
+          returnedQuantity: item.returnedQuantity,
+          missingQuantity: item.missingQuantity,
+          status: item.status
+        })),
+        outsourceReturnItems: part.outsourceReturnItems.map((item) => ({
+          returnQuantity: item.returnQuantity,
+          abnormalQuantity: item.abnormalQuantity
+        })),
+        abnormals: part.abnormals.map((abnormal) => ({
+          id: abnormal.id,
+          status: abnormal.status,
+          reason: abnormal.reason,
+          createdAt: abnormal.createdAt.toISOString(),
+          resolvedAt: abnormal.resolvedAt?.toISOString() ?? null
         }))
       }))
+    })),
+    deliveryOrders: order.deliveryOrders.map((deliveryOrder) => ({
+      id: deliveryOrder.id,
+      deliveryNo: deliveryOrder.deliveryNo,
+      deliveryDate: deliveryOrder.deliveryDate.toISOString(),
+      status: deliveryOrder.status,
+      receiver: deliveryOrder.receiver,
+      createdAt: deliveryOrder.createdAt.toISOString(),
+      items: deliveryOrder.items.map((item) => ({
+        deliveryQuantity: item.deliveryQuantity,
+        productId: item.productId
+      }))
+    })),
+    partAbnormals: order.partAbnormals.map((abnormal) => ({
+      id: abnormal.id,
+      status: abnormal.status,
+      reason: abnormal.reason,
+      createdAt: abnormal.createdAt.toISOString(),
+      resolvedAt: abnormal.resolvedAt?.toISOString() ?? null,
+      productPartId: abnormal.productPartId,
+      productId: abnormal.productId
     }))
   };
 

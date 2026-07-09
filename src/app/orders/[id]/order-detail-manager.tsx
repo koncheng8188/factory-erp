@@ -4,6 +4,7 @@ import type { ProductPartStatus, ProductStatus } from "@prisma/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useMemo, useState, useTransition } from "react";
+import { getOrderStatusLabel } from "@/lib/order-status";
 import { getProductPartStatusLabel } from "@/lib/product-part-status";
 import { getProductStatusLabel } from "@/lib/product-status";
 import {
@@ -45,6 +46,9 @@ type ProductPart = {
   status: ProductPartStatus;
   remark: string | null;
   drawings: PartDrawing[];
+  outsourceItems: OutsourceItem[];
+  outsourceReturnItems: ReturnItem[];
+  abnormals: PartAbnormal[];
 };
 
 type PartDrawing = {
@@ -72,6 +76,44 @@ type Product = {
   status: ProductStatus;
   remark: string | null;
   parts: ProductPart[];
+  deliveryOrderItems: DeliveryOrderItem[];
+};
+
+type OutsourceItem = {
+  outsourceQuantity: number;
+  returnedQuantity: number;
+  missingQuantity: number;
+  status: string;
+};
+
+type ReturnItem = {
+  returnQuantity: number;
+  abnormalQuantity: number;
+};
+
+type PartAbnormal = {
+  id: string;
+  status: string;
+  reason: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  productPartId?: string;
+  productId?: string;
+};
+
+type DeliveryOrderItem = {
+  deliveryQuantity: number;
+  productId?: string;
+};
+
+type DeliveryOrder = {
+  id: string;
+  deliveryNo: string;
+  deliveryDate: string;
+  status: string;
+  receiver: string | null;
+  createdAt: string;
+  items: DeliveryOrderItem[];
 };
 
 type OrderDetail = {
@@ -85,6 +127,8 @@ type OrderDetail = {
   remark: string | null;
   customer: Customer;
   products: Product[];
+  deliveryOrders: DeliveryOrder[];
+  partAbnormals: PartAbnormal[];
 };
 
 type OrderForm = {
@@ -118,6 +162,15 @@ type PartForm = {
 
 const orderStatuses = ["PENDING", "PRODUCING", "OUTSOURCING", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED", "ABNORMAL"];
 const drawingStatuses = ["PENDING", "CONFIRMED", "OBSOLETE"];
+const productionPartStatuses = new Set<ProductPartStatus>(["CUTTING", "WELDING", "POLISHING"]);
+const orderFlowSteps = [
+  { status: "PENDING", label: "待处理" },
+  { status: "PRODUCING", label: "生产中" },
+  { status: "OUTSOURCING", label: "外发中" },
+  { status: "WAIT_DELIVERY", label: "待送货" },
+  { status: "PARTIAL_DELIVERED", label: "部分送货" },
+  { status: "COMPLETED", label: "已完成" }
+];
 
 const emptyProductForm: ProductForm = {
   productName: "",
@@ -185,6 +238,16 @@ const progressFlowColumns: { key: keyof ProgressFlow; label: string }[] = [
 
 function formatEmpty(value: string | number | null | undefined) {
   return value === null || value === undefined || value === "" ? "-" : value;
+}
+
+function getAbnormalStatusLabel(status: string) {
+  if (status === "OPEN") return "未处理";
+  if (status === "RESOLVED") return "已处理";
+  return status;
+}
+
+function sumNumbers(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0);
 }
 
 function getPartProductionFlow(partStatus: string, productStatus: string): ProgressFlow {
@@ -286,6 +349,164 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
     [order.products]
   );
   const productionProgressHref = `/production?keyword=${encodeURIComponent(order.orderNo)}`;
+  const abnormalListHref = `/production/abnormal?keyword=${encodeURIComponent(order.orderNo)}`;
+  const deliveryCreateHref = `/delivery/new?orderId=${order.id}`;
+  const overview = useMemo(() => {
+    const parts = order.products.flatMap((product) => product.parts);
+    const openAbnormals = order.partAbnormals.filter((abnormal) => abnormal.status === "OPEN");
+    const deliveredQuantity = sumNumbers(order.deliveryOrders.flatMap((deliveryOrder) => deliveryOrder.items.map((item) => item.deliveryQuantity)));
+    const pendingDeliveryProducts = order.products.filter((product) => product.status === "WAIT_DELIVERY" || product.status === "PARTIAL_DELIVERED");
+    const completedProducts = order.products.filter((product) => product.status === "COMPLETED");
+    const waitOutsourceParts = parts.filter((part) => part.status === "WAIT_OUTSOURCE");
+    const unreturnedParts = parts.filter(
+      (part) => part.missingQuantity > 0 || part.status === "OUTSOURCING" || part.status === "PARTIAL_RETURN"
+    );
+
+    return {
+      productCount: order.products.length,
+      partCount: parts.length,
+      productionPartCount: parts.filter((part) => productionPartStatuses.has(part.status)).length,
+      waitOutsourcePartCount: waitOutsourceParts.length,
+      unreturnedPartCount: unreturnedParts.length,
+      pendingDeliveryProductCount: pendingDeliveryProducts.length,
+      openAbnormalCount: openAbnormals.length,
+      completedProductCount: completedProducts.length,
+      outsourceItemCount: sumNumbers(parts.map((part) => part.outsourceItems.length)),
+      returnedQuantity: sumNumbers(parts.map((part) => part.returnedQuantity)),
+      missingQuantity: sumNumbers(parts.map((part) => part.missingQuantity)),
+      deliveryOrderCount: order.deliveryOrders.length,
+      deliveredQuantity,
+      recentOpenAbnormal: openAbnormals[0] ?? null,
+      allProductsCompleted: order.products.length > 0 && completedProducts.length === order.products.length
+    };
+  }, [order]);
+
+  function renderOrderOverview() {
+    const overviewCards = [
+      { label: "产品数量", value: overview.productCount, tone: "border-slate-200 bg-white text-[#172033]" },
+      { label: "部件数量", value: overview.partCount, tone: "border-slate-200 bg-white text-[#172033]" },
+      { label: "生产中部件", value: overview.productionPartCount, tone: "border-blue-200 bg-blue-50 text-blue-700" },
+      { label: "待外发部件", value: overview.waitOutsourcePartCount, tone: "border-amber-200 bg-amber-50 text-amber-700" },
+      { label: "外发未回部件", value: overview.unreturnedPartCount, tone: "border-orange-200 bg-orange-50 text-orange-700" },
+      { label: "待送货产品", value: overview.pendingDeliveryProductCount, tone: "border-sky-200 bg-sky-50 text-sky-700" },
+      { label: "未处理异常", value: overview.openAbnormalCount, tone: "border-red-200 bg-red-50 text-red-700" },
+      { label: "已完成产品", value: overview.completedProductCount, tone: "border-green-200 bg-green-50 text-green-700" }
+    ];
+
+    const currentStepIndex = orderFlowSteps.findIndex((step) => step.status === order.status);
+    const todoItems = [
+      overview.openAbnormalCount > 0 ? { text: "有未处理生产异常，请及时处理。", className: "border-red-200 bg-red-50 text-red-700" } : null,
+      overview.unreturnedPartCount > 0 ? { text: "有外发未回部件。", className: "border-orange-200 bg-orange-50 text-orange-700" } : null,
+      overview.waitOutsourcePartCount > 0 ? { text: "有部件待外发。", className: "border-amber-200 bg-amber-50 text-amber-700" } : null,
+      overview.pendingDeliveryProductCount > 0 ? { text: "有产品待送货。", className: "border-sky-200 bg-sky-50 text-sky-700" } : null,
+      overview.allProductsCompleted ? { text: "订单产品已全部完成。", className: "border-green-200 bg-green-50 text-green-700" } : null
+    ].filter(Boolean) as { text: string; className: string }[];
+
+    return (
+      <section className={`${card} p-5`}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className={cardTitle}>订单全流程概览</h2>
+            <p className={pageDescription}>汇总该订单的生产、外发、回厂、异常和送货进度。</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link className={`${buttonPrimary} !text-white hover:!text-white`} href={productionProgressHref}>
+              进入生产进度
+            </Link>
+            <Link className="inline-flex items-center justify-center rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold hover:bg-[#eef2f6]" href="/outsourcing/new">
+              新建外发单
+            </Link>
+            <Link className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" href={abnormalListHref}>
+              查看异常
+            </Link>
+            <Link className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 hover:text-white" href={deliveryCreateHref}>
+              新建送货单
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {overviewCards.map((item) => (
+            <div key={item.label} className={`rounded-md border px-4 py-3 ${item.tone}`}>
+              <div className="text-xs font-medium opacity-80">{item.label}</div>
+              <div className="mt-2 text-2xl font-semibold">{item.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 rounded-md border border-[#d8dde6] bg-[#fbfcfd] p-4">
+          <div className="text-sm font-semibold text-[#172033]">订单流程</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {orderFlowSteps.map((step, index) => {
+              const isCurrent = step.status === order.status;
+              const isPassed = currentStepIndex >= 0 && index < currentStepIndex;
+              return (
+                <span
+                  key={step.status}
+                  className={`rounded-full border px-3 py-1 text-sm font-medium ${
+                    isCurrent
+                      ? "border-blue-300 bg-blue-600 text-white"
+                      : isPassed
+                        ? "border-green-200 bg-green-50 text-green-700"
+                        : "border-[#d8dde6] bg-white text-[#667085]"
+                  }`}
+                >
+                  {step.label}
+                </span>
+              );
+            })}
+            {order.status === "ABNORMAL" ? (
+              <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">
+                异常
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-4">
+          <div className="rounded-md border border-[#d8dde6] bg-white px-4 py-3 text-sm">
+            <div className="font-semibold text-[#172033]">外发摘要</div>
+            <div className="mt-2 text-[#667085]">外发明细 {overview.outsourceItemCount} 条</div>
+            <div className="mt-1 text-[#667085]">未回部件 {overview.unreturnedPartCount} 个</div>
+          </div>
+          <div className="rounded-md border border-[#d8dde6] bg-white px-4 py-3 text-sm">
+            <div className="font-semibold text-[#172033]">回厂摘要</div>
+            <div className="mt-2 text-[#667085]">已回数量 {overview.returnedQuantity}</div>
+            <div className="mt-1 text-[#667085]">未回数量 {overview.missingQuantity}</div>
+          </div>
+          <div className="rounded-md border border-[#d8dde6] bg-white px-4 py-3 text-sm">
+            <div className="font-semibold text-[#172033]">异常摘要</div>
+            <div className="mt-2 text-[#667085]">未处理异常 {overview.openAbnormalCount} 条</div>
+            <div className="mt-1 truncate text-[#667085]">
+              最近异常：{overview.recentOpenAbnormal ? `${getAbnormalStatusLabel(overview.recentOpenAbnormal.status)} · ${overview.recentOpenAbnormal.reason}` : "-"}
+            </div>
+          </div>
+          <div className="rounded-md border border-[#d8dde6] bg-white px-4 py-3 text-sm">
+            <div className="font-semibold text-[#172033]">送货摘要</div>
+            <div className="mt-2 text-[#667085]">送货单 {overview.deliveryOrderCount} 张</div>
+            <div className="mt-1 text-[#667085]">已送数量 {overview.deliveredQuantity}</div>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <div className="text-sm font-semibold text-[#172033]">当前待处理事项</div>
+          {todoItems.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {todoItems.map((item) => (
+                <span key={item.text} className={`rounded-md border px-3 py-2 text-sm font-medium ${item.className}`}>
+                  {item.text}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700">
+              暂无明显待处理事项。
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
 
   function renderProductionProgress() {
     return (
@@ -932,7 +1153,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
             <div><dt className="text-[#667085]">客户名称</dt><dd className="mt-1 font-medium">{order.customerName}</dd></div>
             <div><dt className="text-[#667085]">下单日期</dt><dd className="mt-1">{formatDate(order.orderDate)}</dd></div>
             <div><dt className="text-[#667085]">交货日期</dt><dd className="mt-1">{formatDate(order.deliveryDate)}</dd></div>
-            <div><dt className="text-[#667085]">订单状态</dt><dd className="mt-1">{order.status}</dd></div>
+            <div><dt className="text-[#667085]">订单状态</dt><dd className="mt-1">{getOrderStatusLabel(order.status)}</dd></div>
             <div><dt className="text-[#667085]">备注</dt><dd className="mt-1">{order.remark || "-"}</dd></div>
           </dl>
         </div>
@@ -947,6 +1168,8 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
           </dl>
         </div>
       </section>
+
+      {renderOrderOverview()}
 
       {renderProductionProgress()}
 
@@ -973,7 +1196,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
           <label className="block text-sm font-medium">
             订单状态
             <select className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={orderForm.status} onChange={(event) => updateOrderField("status", event.target.value)}>
-              {orderStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+              {orderStatuses.map((status) => <option key={status} value={status}>{getOrderStatusLabel(status)}</option>)}
             </select>
           </label>
           <label className="block text-sm font-medium lg:col-span-2">
@@ -1070,7 +1293,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                     <td className="border-b border-[#eef2f6] px-3 py-3">{product.material || "-"}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">{product.quantity}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">{product.surfaceTreatment || "-"}</td>
-                    <td className="border-b border-[#eef2f6] px-3 py-3">{product.status}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{getProductStatusLabel(product.status)}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">{product.remark || "-"}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">
                       <div className="flex flex-wrap gap-2">
@@ -1131,7 +1354,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                                 <td className="border-b border-[#eef2f6] px-3 py-2">{part.outsourcedQuantity}</td>
                                 <td className="border-b border-[#eef2f6] px-3 py-2">{part.returnedQuantity}</td>
                                 <td className="border-b border-[#eef2f6] px-3 py-2">{part.missingQuantity}</td>
-                                <td className="border-b border-[#eef2f6] px-3 py-2">{part.status}</td>
+                                <td className="border-b border-[#eef2f6] px-3 py-2">{getProductPartStatusLabel(part.status)}</td>
                                 <td className="border-b border-[#eef2f6] px-3 py-2">{part.remark || "-"}</td>
                                 <td className="border-b border-[#eef2f6] px-3 py-2">
                                   <div className="flex gap-2">
