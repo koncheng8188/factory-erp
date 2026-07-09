@@ -830,7 +830,7 @@ export default async function DashboardPage() {
             ))}
           </TodoCard>
 
-          <TodoCard title="待送货产品" count={deliveryTodoProductCount} href="/orders?status=WAIT_DELIVERY" tone="info" hasItems={deliveryTodoProducts.length > 0}>
+          <TodoCard title="待送货产品" count={deliveryTodoProductCount} href="/delivery/new" tone="info" hasItems={deliveryTodoProducts.length > 0}>
             {deliveryTodoProducts.map((product) => (
               <Link
                 key={product.id}

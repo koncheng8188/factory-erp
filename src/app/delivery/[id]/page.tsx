@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatDisplayDate } from "@/lib/delivery";
+import { getDeliveryStatusLabel } from "@/lib/delivery-status";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,7 @@ export default async function DeliveryDetailPage({ params }: DeliveryDetailPageP
           <div><dt className="text-[#667085]">送货日期</dt><dd className="mt-1">{formatDisplayDate(deliveryOrder.deliveryDate)}</dd></div>
           <div><dt className="text-[#667085]">收货人</dt><dd className="mt-1">{deliveryOrder.receiver || "-"}</dd></div>
           <div><dt className="text-[#667085]">经手人</dt><dd className="mt-1">{deliveryOrder.handler || "-"}</dd></div>
-          <div><dt className="text-[#667085]">状态</dt><dd className="mt-1">{deliveryOrder.status}</dd></div>
+          <div><dt className="text-[#667085]">状态</dt><dd className="mt-1">{getDeliveryStatusLabel(deliveryOrder.status)}</dd></div>
           <div><dt className="text-[#667085]">创建时间</dt><dd className="mt-1">{formatDisplayDate(deliveryOrder.createdAt)}</dd></div>
           <div className="sm:col-span-2 lg:col-span-4"><dt className="text-[#667085]">备注</dt><dd className="mt-1">{deliveryOrder.remark || "-"}</dd></div>
         </dl>

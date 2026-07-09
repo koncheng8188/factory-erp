@@ -24,6 +24,8 @@ function errorMessage(error: unknown, fallback: string) {
 
 const nonRegressiveProductStatusList: ProductStatus[] = ["PARTIAL_DELIVERED", "COMPLETED"];
 const nonRegressiveOrderStatusList: OrderStatus[] = ["PARTIAL_DELIVERED", "COMPLETED"];
+const deliveryReadyProductStatusList: ProductStatus[] = ["WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED"];
+const protectedDeliveryOrderStatusList: OrderStatus[] = ["ABNORMAL", "PARTIAL_DELIVERED", "COMPLETED"];
 
 export async function GET() {
   try {
@@ -275,6 +277,35 @@ export async function POST(request: NextRequest) {
 
       for (const productId of affectedProductIds) {
         await syncProductStatusFromParts(tx, productId);
+      }
+
+      const affectedOrderIds = new Set(outsourceOrder.items.map((item) => item.orderId));
+      for (const orderId of affectedOrderIds) {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: {
+            status: true,
+            products: {
+              select: {
+                status: true
+              }
+            }
+          }
+        });
+
+        if (!order || protectedDeliveryOrderStatusList.includes(order.status)) {
+          continue;
+        }
+
+        const allProductsReadyForDelivery =
+          order.products.length > 0 && order.products.every((product) => deliveryReadyProductStatusList.includes(product.status));
+
+        if (allProductsReadyForDelivery) {
+          await tx.order.update({
+            where: { id: orderId },
+            data: { status: "WAIT_DELIVERY" }
+          });
+        }
       }
 
       return outsourceReturn;

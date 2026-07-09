@@ -15,6 +15,16 @@ type RawDeliveryItem = {
   remark?: unknown;
 };
 
+class BusinessError extends Error {
+  status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.name = "BusinessError";
+    this.status = status;
+  }
+}
+
 function parseQuantity(value: unknown) {
   const quantity = Number(value);
   return Number.isInteger(quantity) ? quantity : Number.NaN;
@@ -105,25 +115,25 @@ export async function POST(request: NextRequest) {
       });
 
       if (!order) {
-        throw new Error("订单不存在。");
+        throw new BusinessError("订单不存在。", 400);
       }
       if (order.status === "COMPLETED") {
-        throw new Error("订单已完成，不能继续创建送货单。");
+        throw new BusinessError("订单已完成，不能继续创建送货单。", 409);
       }
 
       const productMap = new Map(order.products.map((product) => [product.id, product]));
       for (const item of itemMap.values()) {
         const product = productMap.get(item.productId);
         if (!product || product.orderId !== orderId) {
-          throw new Error("送货明细产品不属于当前订单。");
+          throw new BusinessError("送货明细产品不属于当前订单。", 400);
         }
         const deliveredQuantity = deliveredQuantityFromItems(product.deliveryOrderItems);
         const missingQuantity = missingDeliveryQuantity(product.quantity, deliveredQuantity);
         if (!canDeliverProduct(product.status, missingQuantity)) {
-          throw new Error(`产品「${product.productName}」当前状态或未送数量不允许送货。`);
+          throw new BusinessError(`产品「${product.productName}」当前状态或未送数量不允许送货。`, 409);
         }
         if (item.deliveryQuantity > missingQuantity) {
-          throw new Error(`产品「${product.productName}」本次送货数量不能大于未送数量 ${missingQuantity}。`);
+          throw new BusinessError(`产品「${product.productName}」本次送货数量不能大于未送数量 ${missingQuantity}。`, 409);
         }
       }
 
@@ -219,6 +229,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ deliveryOrder });
   } catch (error) {
+    if (error instanceof BusinessError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error("创建送货单失败", error);
     return NextResponse.json({ error: errorMessage(error, "创建送货单失败。") }, { status: 500 });
   }
 }
