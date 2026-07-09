@@ -483,7 +483,7 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
             type="button"
             onClick={() => window.print()}
           >
-            打印生产跟踪表
+            打印生产进度跟踪表
           </button>
         </div>
       </section>

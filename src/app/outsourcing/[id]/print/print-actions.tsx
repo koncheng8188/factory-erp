@@ -16,7 +16,7 @@ export function PrintActions({ id }: { id: string }) {
         type="button"
         onClick={() => window.print()}
       >
-        打印外发单
+        打印外发电镀单
       </button>
     </div>
   );

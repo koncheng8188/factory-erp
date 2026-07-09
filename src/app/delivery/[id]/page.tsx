@@ -42,11 +42,11 @@ export default async function DeliveryDetailPage({ params }: DeliveryDetailPageP
           查看关联订单
         </Link>
         <Link
-          className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold !text-white shadow-sm hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+          className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white !text-white shadow-sm hover:bg-slate-700 hover:text-white hover:!text-white focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
           href={`/delivery/${deliveryOrder.id}/print`}
           style={{ color: "#ffffff" }}
         >
-          🖨 打印送货单
+          打印送货单
         </Link>
       </div>
 

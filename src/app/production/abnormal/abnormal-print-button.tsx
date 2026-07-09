@@ -7,7 +7,7 @@ export function AbnormalPrintButton() {
       type="button"
       onClick={() => window.print()}
     >
-      打印异常清单
+      打印生产异常清单
     </button>
   );
 }
