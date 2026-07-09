@@ -83,6 +83,14 @@ type ProductionManagerProps = {
   };
 };
 
+type AbnormalTarget = {
+  partId: string;
+  orderNo: string;
+  productName: string;
+  partCode: string | null;
+  partName: string;
+};
+
 type FlowState =
   | "未开始"
   | "进行中"
@@ -272,6 +280,9 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [updatingPartId, setUpdatingPartId] = useState<string | null>(null);
+  const [abnormalTarget, setAbnormalTarget] = useState<AbnormalTarget | null>(null);
+  const [abnormalReason, setAbnormalReason] = useState("");
+  const [abnormalSubmitting, setAbnormalSubmitting] = useState(false);
 
   function syncHorizontalScroll(source: "table" | "floating") {
     if (syncingScrollRef.current) return;
@@ -311,36 +322,136 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
     router.refresh();
   }
 
-  function renderPartAction(part: ProductionPart) {
+  function openAbnormalModal(product: ProductionProduct, part: ProductionPart) {
+    setMessage("");
+    setError("");
+    setAbnormalReason("");
+    setAbnormalTarget({
+      partId: part.id,
+      orderNo: product.orderNo,
+      productName: product.productName,
+      partCode: part.partCode,
+      partName: part.partName
+    });
+  }
+
+  function closeAbnormalModal() {
+    if (abnormalSubmitting) return;
+    setAbnormalTarget(null);
+    setAbnormalReason("");
+  }
+
+  async function registerAbnormal() {
+    if (!abnormalTarget) return;
+
+    const reason = abnormalReason.trim();
+    if (!reason) {
+      setError("请填写异常原因。");
+      return;
+    }
+
+    if (reason.length > 500) {
+      setError("异常原因不能超过 500 字。");
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    setAbnormalSubmitting(true);
+
+    const response = await fetch(`/api/parts/${abnormalTarget.partId}/abnormal`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ reason })
+    });
+    const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查服务端日志。" }));
+
+    setAbnormalSubmitting(false);
+
+    if (!response.ok) {
+      setError(data.error ?? "登记生产异常失败。");
+      return;
+    }
+
+    setMessage(`${abnormalTarget.partName} 已登记生产异常。`);
+    setAbnormalTarget(null);
+    setAbnormalReason("");
+    router.refresh();
+  }
+
+  function renderAbnormalButton(product: ProductionProduct, part: ProductionPart) {
+    return (
+      <button
+        className="inline-flex rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-100"
+        type="button"
+        onClick={() => openAbnormalModal(product, part)}
+      >
+        登记异常
+      </button>
+    );
+  }
+
+  function renderPartAction(product: ProductionProduct, part: ProductionPart) {
     const advanceLabel = advancePartLabels[part.status];
     const linkAction = partLinkActions[part.status];
 
+    if (part.status === "ABNORMAL") {
+      return (
+        <div className="space-y-2">
+          <div className="text-sm font-semibold text-red-700">异常处理中</div>
+          <Link className="inline-flex rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-100" href="/production/abnormal">
+            查看异常
+          </Link>
+        </div>
+      );
+    }
+
     if (advanceLabel) {
       return (
-        <button
-          className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#344054] hover:text-white disabled:opacity-60"
-          disabled={updatingPartId === part.id}
-          onClick={() => advancePart(part)}
-        >
-          {updatingPartId === part.id ? "更新中" : advanceLabel}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#344054] hover:text-white disabled:opacity-60"
+            disabled={updatingPartId === part.id}
+            onClick={() => advancePart(part)}
+          >
+            {updatingPartId === part.id ? "更新中" : advanceLabel}
+          </button>
+          {renderAbnormalButton(product, part)}
+        </div>
       );
     }
 
     if (linkAction) {
       return (
-        <div className="space-y-1">
-          <Link className="inline-flex rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]" href={linkAction.href}>
-            {linkAction.label}
-          </Link>
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <Link className="inline-flex rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]" href={linkAction.href}>
+              {linkAction.label}
+            </Link>
+            {renderAbnormalButton(product, part)}
+          </div>
           <div className="text-xs text-[#667085]">{linkAction.tip}</div>
         </div>
       );
     }
 
-    if (part.status === "RETURNED") return <span className="text-sm font-semibold text-green-700">已回厂，等待产品齐套送货</span>;
-    if (part.status === "ABNORMAL") return <span className="text-sm font-semibold text-red-700">异常，请人工处理</span>;
-    return <span className="text-sm text-[#667085]">-</span>;
+    if (part.status === "RETURNED") {
+      return (
+        <div className="space-y-2">
+          <div className="text-sm font-semibold text-green-700">已回厂，等待产品齐套送货</div>
+          {renderAbnormalButton(product, part)}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        <span className="text-sm text-[#667085]">-</span>
+        <div>{renderAbnormalButton(product, part)}</div>
+      </div>
+    );
   }
 
   const stageFilterLabel = filters.stage === "all" ? "全部" : stageOptions.find((option) => option.value === filters.stage)?.label ?? "全部";
@@ -355,6 +466,12 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
           <p className={pageDescription}>以产品为单位查看全流程进度，生产推进操作由部件子行驱动。</p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <Link
+            className={buttonSecondary}
+            href="/production/abnormal"
+          >
+            异常列表
+          </Link>
           <Link
             className={buttonSecondary}
             href="/production/daily"
@@ -497,7 +614,7 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
                               </td>
                             ))}
                             <td className={compactCellClass}>{part.statusLabel}</td>
-                            <td className="border-b border-[#eef2f6] px-3 py-2">{renderPartAction(part)}</td>
+                            <td className="border-b border-[#eef2f6] px-3 py-2">{renderPartAction(product, part)}</td>
                             <td className="border-b border-[#eef2f6] px-3 py-2 text-[#667085]">-</td>
                           </tr>
                         );
@@ -635,6 +752,60 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
           </table>
         )}
       </section>
+
+      {abnormalTarget ? (
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+          <div className="w-full max-w-lg rounded-lg border border-[#d8dde6] bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-[#172033]">登记生产异常</h2>
+                <p className="mt-1 text-sm text-[#667085]">提交后该部件会进入异常状态，并同步产品状态。</p>
+              </div>
+              <button
+                className="rounded-md border border-[#cfd6e1] px-2 py-1 text-sm text-[#667085] hover:bg-[#f6f7f9]"
+                type="button"
+                onClick={closeAbnormalModal}
+              >
+                关闭
+              </button>
+            </div>
+            <div className="mb-4 grid gap-2 rounded-lg bg-[#f6f7f9] p-3 text-sm">
+              <div>订单号：{abnormalTarget.orderNo}</div>
+              <div>产品：{abnormalTarget.productName}</div>
+              <div>部件编号：{formatEmpty(abnormalTarget.partCode)}</div>
+              <div>部件名称：{abnormalTarget.partName}</div>
+            </div>
+            <label className="block text-sm font-medium">
+              异常原因
+              <textarea
+                className="mt-1 min-h-28 w-full rounded-md border border-[#cfd6e1] px-3 py-2 text-sm outline-none focus:border-[#172033]"
+                maxLength={500}
+                value={abnormalReason}
+                onChange={(event) => setAbnormalReason(event.target.value)}
+                placeholder="例如：尺寸错误、焊接错误、抛光返工、颜色不对、少件、图纸看错..."
+              />
+            </label>
+            <div className="mt-4 flex flex-wrap justify-end gap-3">
+              <button
+                className="rounded-md border border-[#cfd6e1] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]"
+                type="button"
+                disabled={abnormalSubmitting}
+                onClick={closeAbnormalModal}
+              >
+                取消
+              </button>
+              <button
+                className="rounded-md bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#344054] hover:text-white disabled:opacity-60"
+                type="button"
+                disabled={abnormalSubmitting}
+                onClick={registerAbnormal}
+              >
+                {abnormalSubmitting ? "提交中" : "确认登记"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <style>{`
         .production-table-scroll {

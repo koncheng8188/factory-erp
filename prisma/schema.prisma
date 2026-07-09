@@ -44,6 +44,11 @@ enum ProductPartStatus {
   ABNORMAL
 }
 
+enum ProductPartAbnormalStatus {
+  OPEN
+  RESOLVED
+}
+
 enum DrawingStatus {
   PENDING
   CONFIRMED
@@ -115,6 +120,7 @@ model Order {
   deliveryOrders     DeliveryOrder[]
   deliveryOrderItems DeliveryOrderItem[]
   progressLogs       ProductPartProgressLog[]
+  partAbnormals      ProductPartAbnormal[]
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
 }
@@ -135,6 +141,7 @@ model Product {
   outsourceItems     OutsourceOrderItem[]
   deliveryOrderItems DeliveryOrderItem[]
   progressLogs       ProductPartProgressLog[]
+  partAbnormals      ProductPartAbnormal[]
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
 
@@ -165,6 +172,7 @@ model ProductPart {
   outsourceItems       OutsourceOrderItem[]
   outsourceReturnItems OutsourceReturnItem[]
   progressLogs         ProductPartProgressLog[]
+  abnormals            ProductPartAbnormal[]
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
 
@@ -193,6 +201,28 @@ model ProductPartProgressLog {
   @@index([productId])
   @@index([productPartId])
   @@index([toStatus, occurredAt])
+}
+
+model ProductPartAbnormal {
+  id             String                    @id @default(cuid())
+  productPartId  String
+  productPart    ProductPart               @relation(fields: [productPartId], references: [id])
+  productId      String
+  product        Product                   @relation(fields: [productId], references: [id])
+  orderId        String
+  order          Order                     @relation(fields: [orderId], references: [id])
+  fromStatus     ProductPartStatus
+  reason         String
+  status         ProductPartAbnormalStatus @default(OPEN)
+  resolvedAt     DateTime?
+  resolvedRemark String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([orderId])
+  @@index([productId])
+  @@index([productPartId])
 }
 
 model PartDrawing {
