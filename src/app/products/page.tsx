@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { getProductStatusLabel } from "@/lib/product-status";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,7 @@ export default async function ProductsPage() {
                   <td className="border-b border-[#eef2f6] px-3 py-3">{product.material || "-"}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">{product.quantity}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">{product.surfaceTreatment || "-"}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{product.status}</td>
+                  <td className="border-b border-[#eef2f6] px-3 py-3">{getProductStatusLabel(product.status)}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">{product.remark || "-"}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">
                     <Link className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={`/orders/${product.order.id}`}>

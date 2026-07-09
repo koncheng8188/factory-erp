@@ -36,7 +36,7 @@ export default async function DeliveryDetailPage({ params }: DeliveryDetailPageP
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#d8dde6] bg-white px-4 py-3">
         <Link className="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50" href="/delivery">
-          ← 返回送货单列表
+          返回送货列表
         </Link>
         <Link className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100" href={`/orders/${deliveryOrder.orderId}`}>
           查看关联订单

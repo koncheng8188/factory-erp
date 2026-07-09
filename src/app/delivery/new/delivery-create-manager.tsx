@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { todayInputValue } from "@/lib/delivery";
+import { getProductStatusLabel } from "@/lib/product-status";
 
 type ProductOption = {
   id: string;
@@ -275,7 +276,7 @@ export function DeliveryCreateManager({
                   <td className="border-b border-[#eef2f6] px-3 py-2">{product.quantity}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-2">{product.deliveredQuantity}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-2">{product.missingQuantity}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-2">{product.status}</td>
+                  <td className="border-b border-[#eef2f6] px-3 py-2">{getProductStatusLabel(product.status)}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-2">
                     <input
                       type="number"

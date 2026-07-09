@@ -898,7 +898,7 @@ export default async function DashboardPage() {
           {orderStatuses.map((status) => (
             <Link
               key={status}
-              href="/orders"
+              href={`/orders?status=${status}`}
               className={statCard}
             >
               <div className="break-words text-xs font-medium text-[#667085]">{getOrderStatusLabel(status)}</div>

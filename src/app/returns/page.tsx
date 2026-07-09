@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { formatDisplayDate, outsourceTypeLabels, type OutsourceTypeValue } from "@/lib/outsource";
+import { getOutsourceStatusLabel } from "@/lib/outsource-status";
 
 export const dynamic = "force-dynamic";
 
@@ -195,7 +196,7 @@ export default async function ReturnsPage({ searchParams }: ReturnsPageProps) {
                     <td className="border-b border-[#eef2f6] px-3 py-3 font-medium">{returnOrder.outsourceOrder.outsourceNo}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">{returnOrder.outsourceOrder.supplierName}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">{typeLabel(returnOrder.outsourceOrder.outsourceType)}</td>
-                    <td className="border-b border-[#eef2f6] px-3 py-3">{returnOrder.outsourceOrder.status}</td>
+                    <td className="border-b border-[#eef2f6] px-3 py-3">{getOutsourceStatusLabel(returnOrder.outsourceOrder.status)}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">{returnOrder.handler || "-"}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">{returnOrder.items.length}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">{totalReturnQuantity}</td>

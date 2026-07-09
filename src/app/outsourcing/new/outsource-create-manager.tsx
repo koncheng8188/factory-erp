@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { outsourceTypeOptions } from "@/lib/outsource";
+import { getProductPartStatusLabel } from "@/lib/product-part-status";
+import { getProductStatusLabel } from "@/lib/product-status";
 
 type DrawingPreview = {
   id: string;
@@ -82,12 +84,12 @@ function availableQuantity(part: PartOption) {
 const blockedProductStatuses = new Set(["ABNORMAL", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED"]);
 
 function productCannotOutsourceReason(product: ProductOption) {
-  return blockedProductStatuses.has(product.status) ? `状态为 ${product.status}，不能继续外发` : "";
+  return blockedProductStatuses.has(product.status) ? `当前状态为${getProductStatusLabel(product.status)}，不能继续外发` : "";
 }
 
 function partCannotOutsourceReason(part: PartOption) {
   if (part.status === "ABNORMAL") {
-    return "状态为 ABNORMAL，不能继续外发";
+    return `当前状态为${getProductPartStatusLabel(part.status)}，不能继续外发`;
   }
   if (availableQuantity(part) <= 0) {
     return "没有可外发数量";

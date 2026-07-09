@@ -3,6 +3,24 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+const drawingStatusLabels: Record<string, string> = {
+  PENDING: "待确认",
+  CONFIRMED: "已确认",
+  OBSOLETE: "已作废"
+};
+
+const uploadStatusLabels: Record<string, string> = {
+  UPLOADED: "已上传",
+  PROCESSING: "处理中",
+  READY: "可用",
+  FAILED: "失败",
+  THUMBNAIL_FAILED: "缩略图生成失败"
+};
+
+function statusLabel(labels: Record<string, string>, value: string) {
+  return labels[value] ?? value;
+}
+
 function DrawingPreview({ thumbnailUrl, fileName }: { thumbnailUrl: string | null; fileName: string }) {
   if (thumbnailUrl) {
     return <img className="h-16 w-20 rounded border border-[#d8dde6] object-contain" src={thumbnailUrl} alt={fileName} />;
@@ -71,8 +89,8 @@ export default async function DrawingsPage() {
                   </td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">V{drawing.version}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">{drawing.isMain ? "是" : "否"}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{drawing.status}</td>
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{drawing.uploadStatus}</td>
+                  <td className="border-b border-[#eef2f6] px-3 py-3">{statusLabel(drawingStatusLabels, drawing.status)}</td>
+                  <td className="border-b border-[#eef2f6] px-3 py-3">{statusLabel(uploadStatusLabels, drawing.uploadStatus)}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">
                     <a className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={drawing.originalUrl} target="_blank" rel="noreferrer">
                       查看原图

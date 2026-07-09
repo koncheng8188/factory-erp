@@ -137,7 +137,7 @@ export default function BackupPage() {
             type="button"
             onClick={handleBackup}
             disabled={isBackingUp}
-            className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#344054] disabled:cursor-not-allowed disabled:bg-[#98a2b3]"
+            className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#344054] hover:text-white disabled:cursor-not-allowed disabled:bg-[#98a2b3]"
           >
             {isBackingUp ? "备份中..." : "一键备份"}
           </button>

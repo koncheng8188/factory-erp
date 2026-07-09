@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatDisplayDate, outsourceTypeLabels, type OutsourceTypeValue } from "@/lib/outsource";
+import { getOutsourceStatusLabel } from "@/lib/outsource-status";
 
 export const dynamic = "force-dynamic";
 
@@ -82,7 +83,7 @@ export default async function ReturnDetailPage({ params }: ReturnDetailPageProps
           <div><dt className="text-[#667085]">外发单号</dt><dd className="mt-1 font-medium">{returnOrder.outsourceOrder.outsourceNo}</dd></div>
           <div><dt className="text-[#667085]">外发厂家</dt><dd className="mt-1">{returnOrder.outsourceOrder.supplierName}</dd></div>
           <div><dt className="text-[#667085]">外发类型</dt><dd className="mt-1">{typeLabel(returnOrder.outsourceOrder.outsourceType)}</dd></div>
-          <div><dt className="text-[#667085]">外发单状态</dt><dd className="mt-1">{returnOrder.outsourceOrder.status}</dd></div>
+          <div><dt className="text-[#667085]">外发单状态</dt><dd className="mt-1">{getOutsourceStatusLabel(returnOrder.outsourceOrder.status)}</dd></div>
           <div><dt className="text-[#667085]">经手人</dt><dd className="mt-1">{returnOrder.handler || "-"}</dd></div>
           <div><dt className="text-[#667085]">回厂数量</dt><dd className="mt-1">{totalReturnQuantity}</dd></div>
           <div><dt className="text-[#667085]">异常数量</dt><dd className="mt-1">{totalAbnormalQuantity}</dd></div>
