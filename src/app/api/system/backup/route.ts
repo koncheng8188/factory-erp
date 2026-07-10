@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { execFileSync } from "child_process";
 import { access, copyFile, cp, mkdir, stat, writeFile } from "fs/promises";
 import path from "path";
 
 export const runtime = "nodejs";
 
 const backupRoot = "C:\\金鸿ERP备份";
+const gitTimeout = 3000;
 
 function padNumber(value: number) {
   return String(value).padStart(2, "0");
@@ -22,6 +24,27 @@ function formatTimestamp(date: Date) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function readGitValue(args: string[], fallback: string) {
+  try {
+    const result = execFileSync("git", args, {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: gitTimeout,
+      windowsHide: true
+    });
+    return result.trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readGitVersion() {
+  return {
+    commit: readGitValue(["rev-parse", "HEAD"], "无法读取"),
+    tag: readGitValue(["describe", "--tags", "--exact-match"], "未标记")
+  };
 }
 
 async function ensureFile(filePath: string) {
@@ -102,12 +125,15 @@ export async function POST() {
 
   try {
     const backupTime = new Date().toLocaleString("zh-CN", { hour12: false });
+    const gitVersion = readGitVersion();
     const backupInfo = [
       "项目名称：金鸿ERP",
       `备份时间：${backupTime}`,
       `数据库来源：${databaseSource}`,
       `上传文件来源：${uploadsSource}`,
       `备份目录：${backupDir}`,
+      `Git提交：${gitVersion.commit}`,
+      `Git标签：${gitVersion.tag}`,
       "说明：此备份包含数据库和上传图纸，不包含 node_modules 和 .next。",
       "说明：代码请通过 GitHub 或 Git 标签备份。"
     ].join("\n");
