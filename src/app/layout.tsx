@@ -51,6 +51,7 @@ const menuGroups = [
     title: "系统工具",
     items: [
       { href: "/imports/excel", label: "Excel 导入" },
+      { href: "/settings/data", label: "数据管理" },
       { href: "/settings/backup", label: "系统备份" }
     ]
   }
