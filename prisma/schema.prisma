@@ -90,6 +90,15 @@ enum DeliveryOrderStatus {
   COMPLETED
 }
 
+enum UserRole {
+  ADMIN
+  OWNER
+  SALES
+  PRODUCTION
+  OUTSOURCE
+  DELIVERY
+}
+
 model Customer {
   id             String          @id @default(cuid())
   name           String
@@ -378,4 +387,28 @@ model DeliveryOrderItem {
   @@index([deliveryOrderId])
   @@index([orderId])
   @@index([productId])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  employeeNo   String    @unique
+  name         String
+  passwordHash String
+  role         UserRole
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }

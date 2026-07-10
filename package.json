@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "admin:create": "node scripts/create-initial-admin.cjs"
   },
   "dependencies": {
     "@prisma/client": "6.11.1",
