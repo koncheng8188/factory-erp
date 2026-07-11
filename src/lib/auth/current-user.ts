@@ -10,6 +10,10 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
 }
 
 export async function requireUser() {
+  return requirePageUser();
+}
+
+export async function requirePageUser() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   return user;
