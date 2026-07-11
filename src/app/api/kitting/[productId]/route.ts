@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getProductKitting, refreshProductKittingStatus } from "@/lib/kitting";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ productId: string }>;
@@ -11,6 +12,8 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export async function GET(_request: Request, context: RouteContext) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const { productId } = await context.params;
     const kitting = await getProductKitting(prisma, productId);
@@ -26,6 +29,8 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function POST(_request: Request, context: RouteContext) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const { productId } = await context.params;
     const kitting = await prisma.$transaction((tx) => refreshProductKittingStatus(tx, productId));

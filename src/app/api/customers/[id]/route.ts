@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -10,6 +11,8 @@ function normalizeOptional(value: unknown) {
 }
 
 export async function PUT(request: NextRequest, context: RouteContext) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
     const body = await request.json();
@@ -37,6 +40,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
     const orderCount = await prisma.order.count({ where: { customerId: id } });

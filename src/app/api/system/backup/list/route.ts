@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { execFileSync } from "child_process";
 import { open, readdir, readFile, stat } from "fs/promises";
 import path from "path";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 export const runtime = "nodejs";
 
@@ -222,6 +223,8 @@ function resolveHealthStatus(criticalMessages: string[], warningMessages: string
 }
 
 export async function GET() {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     let entries;
     try {

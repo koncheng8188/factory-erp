@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getNextPartStatus, syncProductStatusFromParts } from "@/lib/product-progress";
 import { prisma } from "@/lib/prisma";
 import type { ProductPartStatus } from "@prisma/client";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -25,6 +26,8 @@ function getAdvanceActionName(fromStatus: ProductPartStatus, toStatus: ProductPa
 }
 
 export async function POST(_request: Request, context: RouteContext) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
 

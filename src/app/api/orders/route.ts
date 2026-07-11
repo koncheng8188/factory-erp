@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { generateOrderNo } from "@/lib/orders";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 function normalizeOptional(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -15,6 +16,8 @@ function parseDate(value: unknown, fallback = new Date()) {
 }
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const body = await request.json();
     const customerId = typeof body.customerId === "string" ? body.customerId : "";

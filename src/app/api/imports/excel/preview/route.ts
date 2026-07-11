@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MAX_IMPORT_FILE_SIZE, parseImportWorkbook, validateImportRows } from "@/lib/import-excel";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const formData = await request.formData();
     const file = formData.get("file");

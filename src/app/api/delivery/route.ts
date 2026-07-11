@@ -8,6 +8,7 @@ import {
   normalizeOptional,
   parseDate
 } from "@/lib/delivery";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 type RawDeliveryItem = {
   productId?: unknown;
@@ -35,6 +36,8 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export async function GET() {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const deliveryOrders = await prisma.deliveryOrder.findMany({
       orderBy: { createdAt: "desc" },
@@ -59,6 +62,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const body = await request.json();
     const orderId = typeof body.orderId === "string" ? body.orderId : "";

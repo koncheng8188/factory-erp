@@ -1,7 +1,10 @@
 import ExcelJS from "exceljs";
 import { IMPORT_HEADERS, IMPORT_SHEET_NAME } from "@/lib/import-excel";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 export async function GET() {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "金鸿 ERP";

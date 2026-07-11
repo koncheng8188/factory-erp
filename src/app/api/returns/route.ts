@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeOptional, parseDate } from "@/lib/outsource";
 import { syncProductStatusFromParts } from "@/lib/product-progress";
 import { resolveOutsourceItemStatus, resolvePartStatus } from "@/lib/returns";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 type RawReturnItem = {
   outsourceOrderItemId?: unknown;
@@ -28,6 +29,8 @@ const deliveryReadyProductStatusList: ProductStatus[] = ["WAIT_DELIVERY", "PARTI
 const protectedDeliveryOrderStatusList: OrderStatus[] = ["ABNORMAL", "PARTIAL_DELIVERED", "COMPLETED"];
 
 export async function GET() {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const returns = await prisma.outsourceReturn.findMany({
       orderBy: { createdAt: "desc" },
@@ -57,6 +60,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const body = await request.json();
     const outsourceOrderId = typeof body.outsourceOrderId === "string" ? body.outsourceOrderId : "";

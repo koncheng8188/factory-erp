@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { isProductPartStatus } from "@/lib/product-part-status";
 import { syncProductStatusFromParts } from "@/lib/product-progress";
 import { prisma } from "@/lib/prisma";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -22,6 +23,8 @@ function normalizeOptionalText(value: unknown) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
     const body = await request.json().catch(() => ({} as ResolveRequestBody));

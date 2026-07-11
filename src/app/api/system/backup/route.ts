@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { execFileSync } from "child_process";
 import { access, copyFile, cp, mkdir, stat, writeFile } from "fs/promises";
 import path from "path";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 export const runtime = "nodejs";
 
@@ -82,6 +83,8 @@ async function createUniqueBackupDirectory(baseDir: string) {
 }
 
 export async function POST() {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   const projectRoot = process.cwd();
   const databaseSource = path.join(projectRoot, "prisma", "dev.db");
   const uploadsSource = path.join(projectRoot, "public", "uploads");

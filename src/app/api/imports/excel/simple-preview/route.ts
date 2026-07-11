@@ -4,8 +4,11 @@ import {
   parseSimpleImportWorkbook,
   validateSimpleImportRows
 } from "@/lib/import-excel-simple";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const formData = await request.formData();
     const file = formData.get("file");

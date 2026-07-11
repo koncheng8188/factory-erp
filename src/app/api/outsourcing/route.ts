@@ -9,6 +9,7 @@ import {
   parseDate,
   pickOutsourceDrawing
 } from "@/lib/outsource";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 function parseQuantity(value: unknown) {
   const quantity = Number(value);
@@ -28,6 +29,8 @@ const blockedOutsourceProductStatuses = new Set<ProductStatus>(blockedOutsourceP
 const blockedOutsourceOrderStatuses = new Set<OrderStatus>(blockedOutsourceOrderStatusList);
 
 export async function GET() {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const outsourceOrders = await prisma.outsourceOrder.findMany({
       orderBy: { createdAt: "desc" },
@@ -43,6 +46,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const body = await request.json();
     const supplierName = typeof body.supplierName === "string" ? body.supplierName.trim() : "";

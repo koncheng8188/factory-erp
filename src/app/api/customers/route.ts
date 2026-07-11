@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 function normalizeOptional(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const body = await request.json();
     const name = typeof body.name === "string" ? body.name.trim() : "";

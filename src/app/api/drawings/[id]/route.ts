@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -16,6 +17,8 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
     const body = await request.json();
@@ -51,6 +54,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
+  const authResult = await requireApiUser();
+  if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
     const drawing = await prisma.partDrawing.update({
