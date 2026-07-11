@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { withProtectedOutsourceDrawingUrls } from "@/lib/drawing-file-url";
 import { formatDisplayDate, outsourceTypeLabels, type OutsourceTypeValue } from "@/lib/outsource";
 
 export const dynamic = "force-dynamic";
@@ -146,10 +147,10 @@ export default async function OutsourceDetailPage({ params }: OutsourceDetailPag
             <tbody>
               {outsourceOrder.items.map((item) => (
                 <tr key={item.id} className="align-top">
-                  <td className="border-b border-[#eef2f6] px-3 py-3">{renderDrawingPreview(item)}</td>
+                  <td className="border-b border-[#eef2f6] px-3 py-3">{renderDrawingPreview(withProtectedOutsourceDrawingUrls(item))}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">
-                    {item.originalUrl ? (
-                      <a className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={item.originalUrl} target="_blank" rel="noreferrer">
+                    {withProtectedOutsourceDrawingUrls(item).originalUrl ? (
+                      <a className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={withProtectedOutsourceDrawingUrls(item).originalUrl ?? ""} target="_blank" rel="noreferrer">
                         查看原图
                       </a>
                     ) : "-"}

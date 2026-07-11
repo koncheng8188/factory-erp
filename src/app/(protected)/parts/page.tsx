@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { getProductPartStatusLabel, isProductPartStatus, productPartStatusOptions } from "@/lib/product-part-status";
 import { prisma } from "@/lib/prisma";
+import { getDrawingThumbnailUrl } from "@/lib/drawing-file-url";
 
 export const dynamic = "force-dynamic";
 
@@ -188,7 +189,7 @@ export default async function PartsPage({ searchParams }: PartsPageProps) {
                 return (
                   <tr key={part.id} className="align-top">
                     <td className="border-b border-[#eef2f6] px-3 py-3">
-                      <DrawingPreview thumbnailUrl={mainDrawing?.thumbnailUrl} fileName={mainDrawing?.fileName} drawingCount={part.drawings.length} />
+                      <DrawingPreview thumbnailUrl={mainDrawing?.thumbnailUrl ? getDrawingThumbnailUrl(mainDrawing.id) : null} fileName={mainDrawing?.fileName} drawingCount={part.drawings.length} />
                     </td>
                     <td className="border-b border-[#eef2f6] px-3 py-3 font-medium">{part.order.orderNo}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">{part.order.customer.name}</td>

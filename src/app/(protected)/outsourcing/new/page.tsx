@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { getDrawingOriginalUrl, getDrawingThumbnailUrl } from "@/lib/drawing-file-url";
 import { pickOutsourceDrawing } from "@/lib/outsource";
 import { OutsourceCreateManager } from "./outsource-create-manager";
 
@@ -96,8 +97,8 @@ export default async function NewOutsourceOrderPage() {
                 drawing: drawing
                   ? {
                       id: drawing.id,
-                      thumbnailUrl: drawing.thumbnailUrl ?? drawing.printThumbnailUrl,
-                      originalUrl: drawing.originalUrl,
+                      thumbnailUrl: drawing.thumbnailUrl || drawing.printThumbnailUrl ? getDrawingThumbnailUrl(drawing.id) : null,
+                      originalUrl: getDrawingOriginalUrl(drawing.id),
                       fileType: drawing.fileType
                     }
                   : null

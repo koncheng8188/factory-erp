@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { formatDisplayDate, outsourceTypeLabels, type OutsourceTypeValue } from "@/lib/outsource";
 import { getOutsourceStatusLabel } from "@/lib/outsource-status";
 import { prisma } from "@/lib/prisma";
+import { withProtectedOutsourceDrawingUrls } from "@/lib/drawing-file-url";
 import { PrintActions } from "./print-actions";
 
 export const dynamic = "force-dynamic";
@@ -130,7 +131,7 @@ export default async function OutsourcePrintPage({ params }: OutsourcePrintPageP
               {outsourceOrder.items.map((item, index) => (
                 <tr key={item.id}>
                   <td className="center">{index + 1}</td>
-                  <td className="center"><DrawingPreview thumbnailUrl={item.thumbnailUrl} originalUrl={item.originalUrl} /></td>
+                  <td className="center"><DrawingPreview thumbnailUrl={withProtectedOutsourceDrawingUrls(item).thumbnailUrl} originalUrl={withProtectedOutsourceDrawingUrls(item).originalUrl} /></td>
                   <td>{item.order.orderNo}</td>
                   <td>{item.productName}</td>
                   <td>{displayValue(item.part.partCode)}</td>

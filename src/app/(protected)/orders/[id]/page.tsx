@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
 import { OrderDetailManager } from "./order-detail-manager";
 
 export const dynamic = "force-dynamic";
@@ -143,12 +144,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         status: part.status,
         remark: part.remark,
         drawings: part.drawings.map((drawing) => ({
-          id: drawing.id,
+          ...withProtectedDrawingUrls(drawing),
           fileName: drawing.fileName,
           fileType: drawing.fileType,
-          originalUrl: drawing.originalUrl,
-          thumbnailUrl: drawing.thumbnailUrl,
-          printThumbnailUrl: drawing.printThumbnailUrl,
           version: drawing.version,
           isMain: drawing.isMain,
           status: drawing.status,

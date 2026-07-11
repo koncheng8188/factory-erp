@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { allowedDrawingFileMessage, isAllowedDrawingFile, saveDrawingFile } from "@/lib/drawing-files";
 import { requireApiUser } from "@/lib/auth/api-user";
+import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -25,7 +26,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       orderBy: [{ isMain: "desc" }, { version: "desc" }, { createdAt: "desc" }]
     });
 
-    return NextResponse.json({ drawings });
+    return NextResponse.json({ drawings: drawings.map(withProtectedDrawingUrls) });
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error, "查询图纸失败。") }, { status: 500 });
   }
@@ -98,7 +99,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       )
     );
 
-    return NextResponse.json({ drawings });
+    return NextResponse.json({ drawings: drawings.map(withProtectedDrawingUrls) });
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error, "上传图纸失败。") }, { status: 500 });
   }

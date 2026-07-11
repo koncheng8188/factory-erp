@@ -4,6 +4,7 @@ import { getOrderStatusLabel } from "@/lib/order-status";
 import { getProductPartStatusLabel } from "@/lib/product-part-status";
 import { getProductStatusLabel } from "@/lib/product-status";
 import { prisma } from "@/lib/prisma";
+import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
 import { PrintActions } from "./print-actions";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ type OrderPrintPageProps = {
   params: Promise<{ id: string }>;
 };
 
-type DrawingSnapshot = Pick<PartDrawing, "originalUrl" | "thumbnailUrl" | "printThumbnailUrl" | "isMain" | "status">;
+type DrawingSnapshot = Pick<PartDrawing, "id" | "originalUrl" | "thumbnailUrl" | "printThumbnailUrl" | "isMain" | "status">;
 
 function formatDate(value: Date | null | undefined) {
   if (!value) return "-";
@@ -36,7 +37,8 @@ function pickTaskDrawing(drawings: DrawingSnapshot[]) {
 
 function DrawingPreview({ drawings }: { drawings: DrawingSnapshot[] }) {
   const drawing = pickTaskDrawing(drawings);
-  const imageUrl = drawing?.printThumbnailUrl ?? drawing?.thumbnailUrl ?? drawing?.originalUrl ?? null;
+  const protectedDrawing = drawing ? withProtectedDrawingUrls(drawing) : null;
+  const imageUrl = protectedDrawing?.printThumbnailUrl ?? protectedDrawing?.thumbnailUrl ?? protectedDrawing?.originalUrl ?? null;
 
   if (!imageUrl) {
     return <div className="drawing-empty">无图纸</div>;

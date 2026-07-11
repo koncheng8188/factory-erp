@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
 
 export const dynamic = "force-dynamic";
 
@@ -34,14 +35,14 @@ function DrawingPreview({ thumbnailUrl, fileName }: { thumbnailUrl: string | nul
 }
 
 export default async function DrawingsPage() {
-  const drawings = await prisma.partDrawing.findMany({
+  const drawings = (await prisma.partDrawing.findMany({
     orderBy: [{ createdAt: "desc" }],
     include: {
       order: { select: { id: true, orderNo: true } },
       product: { select: { productName: true } },
       part: { select: { partName: true } }
     }
-  });
+  })).map(withProtectedDrawingUrls);
 
   return (
     <div className="space-y-6">

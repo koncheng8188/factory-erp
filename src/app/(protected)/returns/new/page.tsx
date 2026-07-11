@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { withProtectedOutsourceDrawingUrls } from "@/lib/drawing-file-url";
 import { ReturnCreateManager } from "./return-create-manager";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +80,7 @@ export default async function NewReturnPage({ searchParams }: NewReturnPageProps
         handler: outsourceOrder.handler,
         remark: outsourceOrder.remark,
         items: outsourceOrder.items.map((item) => ({
+          ...withProtectedOutsourceDrawingUrls(item),
           id: item.id,
           productName: item.productName,
           partName: item.partName,
@@ -90,8 +92,6 @@ export default async function NewReturnPage({ searchParams }: NewReturnPageProps
           outsourceQuantity: item.outsourceQuantity,
           returnedQuantity: item.returnedQuantity,
           missingQuantity: item.missingQuantity,
-          thumbnailUrl: item.thumbnailUrl,
-          originalUrl: item.originalUrl,
           drawing: item.drawing
         }))
       }}
