@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, rm, stat, writeFile } from "fs/promises";
 import path from "path";
 import sharp from "sharp";
 
@@ -9,8 +9,8 @@ const allowedTypes = new Map([
   ["application/pdf", "pdf"]
 ]);
 
-const originalsDir = path.join(process.cwd(), "public", "uploads", "drawings", "originals");
-const thumbnailsDir = path.join(process.cwd(), "public", "uploads", "drawings", "thumbnails");
+const originalsDir = path.join(process.cwd(), "storage", "uploads", "drawings", "originals");
+const thumbnailsDir = path.join(process.cwd(), "storage", "uploads", "drawings", "thumbnails");
 
 export type SavedDrawingFile = {
   fileName: string;
@@ -20,6 +20,7 @@ export type SavedDrawingFile = {
   printThumbnailUrl: string | null;
   uploadStatus: "SUCCESS" | "THUMBNAIL_FAILED";
   errorMessage: string | null;
+  createdPaths: string[];
 };
 
 export function isAllowedDrawingFile(file: File) {
@@ -69,7 +70,7 @@ export async function saveDrawingFile(partId: string, file: File): Promise<Saved
   const originalUrl = `/uploads/drawings/originals/${originalFileName}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  await writeFile(originalPath, buffer);
+  await writeFile(originalPath, buffer, { flag: "wx" });
 
   if (file.type === "application/pdf") {
     return {
@@ -79,7 +80,8 @@ export async function saveDrawingFile(partId: string, file: File): Promise<Saved
       thumbnailUrl: null,
       printThumbnailUrl: null,
       uploadStatus: "SUCCESS",
-      errorMessage: null
+      errorMessage: null,
+      createdPaths: [originalPath]
     };
   }
 
@@ -88,6 +90,10 @@ export async function saveDrawingFile(partId: string, file: File): Promise<Saved
   const thumbnailUrl = `/uploads/drawings/thumbnails/${thumbnailFileName}`;
 
   try {
+    await stat(thumbnailPath).then(() => { throw new Error("图纸文件名重复，请重新上传。") }).catch((error) => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+      throw error;
+    });
     await sharp(buffer)
       .rotate()
       .resize({ width: 300, height: 300, fit: "inside", withoutEnlargement: true })
@@ -101,17 +107,16 @@ export async function saveDrawingFile(partId: string, file: File): Promise<Saved
       thumbnailUrl,
       printThumbnailUrl: thumbnailUrl,
       uploadStatus: "SUCCESS",
-      errorMessage: null
+      errorMessage: null,
+      createdPaths: [originalPath, thumbnailPath]
     };
   } catch (error) {
-    return {
-      fileName: file.name,
-      fileType: extension,
-      originalUrl,
-      thumbnailUrl: null,
-      printThumbnailUrl: null,
-      uploadStatus: "THUMBNAIL_FAILED",
-      errorMessage: error instanceof Error ? error.message : "缩略图生成失败。"
-    };
+    await rm(originalPath, { force: true }).catch(() => undefined);
+    await rm(thumbnailPath, { force: true }).catch(() => undefined);
+    throw new Error(error instanceof Error ? error.message : "缩略图生成失败。");
   }
+}
+
+export async function deleteSavedDrawingFiles(files: SavedDrawingFile[]) {
+  await Promise.all(files.flatMap((file) => file.createdPaths).map((filePath) => rm(filePath, { force: true }).catch(() => undefined)));
 }

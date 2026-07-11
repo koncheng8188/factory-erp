@@ -7,8 +7,10 @@ import { prisma } from "@/lib/prisma";
 type DrawingFileVariant = "file" | "thumbnail" | "print-thumbnail";
 
 const directories = {
-  originals: path.join(process.cwd(), "public", "uploads", "drawings", "originals"),
-  thumbnails: path.join(process.cwd(), "public", "uploads", "drawings", "thumbnails")
+  privateOriginals: path.join(process.cwd(), "storage", "uploads", "drawings", "originals"),
+  privateThumbnails: path.join(process.cwd(), "storage", "uploads", "drawings", "thumbnails"),
+  legacyOriginals: path.join(process.cwd(), "public", "uploads", "drawings", "originals"),
+  legacyThumbnails: path.join(process.cwd(), "public", "uploads", "drawings", "thumbnails")
 };
 
 const mimeTypes: Record<string, string> = {
@@ -48,23 +50,26 @@ export async function getDrawingFile(drawingId: string, variant: DrawingFileVari
   const isOriginal = variant === "file";
   const value = isOriginal ? drawing.originalUrl : variant === "thumbnail" ? drawing.thumbnailUrl : drawing.printThumbnailUrl ?? drawing.thumbnailUrl;
   if (!value) return null;
-  const directory = isOriginal ? directories.originals : directories.thumbnails;
+  const directoriesToTry = isOriginal ? [directories.privateOriginals, directories.legacyOriginals] : [directories.privateThumbnails, directories.legacyThumbnails];
   const prefix = isOriginal ? "/uploads/drawings/originals/" : "/uploads/drawings/thumbnails/";
   const fileName = legacyFileName(value, prefix);
   if (!fileName) return null;
-  const filePath = safePath(directory, fileName);
-  if (!filePath) return null;
   const extension = path.extname(fileName).toLowerCase();
   const contentType = mimeTypes[extension];
   if (!contentType) return null;
 
-  try {
-    const fileStat = await stat(filePath);
-    if (!fileStat.isFile()) return null;
-    return { buffer: await readFile(filePath), contentType, contentLength: fileStat.size, fileName: drawing.fileName, extension };
-  } catch {
-    return null;
+  for (const directory of directoriesToTry) {
+    const filePath = safePath(directory, fileName);
+    if (!filePath) continue;
+    try {
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile()) continue;
+      return { buffer: await readFile(filePath), contentType, contentLength: fileStat.size, fileName: drawing.fileName, extension };
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 export function contentDisposition(fileName: string, extension: string) {

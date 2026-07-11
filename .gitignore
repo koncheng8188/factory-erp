@@ -17,3 +17,4 @@ public/uploads/**
 !public/uploads/drawings/originals/.gitkeep
 !public/uploads/drawings/thumbnails/
 !public/uploads/drawings/thumbnails/.gitkeep
+storage/uploads/**

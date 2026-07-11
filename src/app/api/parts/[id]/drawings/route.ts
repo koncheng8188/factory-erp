@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { allowedDrawingFileMessage, isAllowedDrawingFile, saveDrawingFile } from "@/lib/drawing-files";
+import { allowedDrawingFileMessage, deleteSavedDrawingFiles, isAllowedDrawingFile, saveDrawingFile } from "@/lib/drawing-files";
 import { requireApiUser } from "@/lib/auth/api-user";
 import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
 
@@ -35,6 +35,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   const authResult = await requireApiUser();
   if (!authResult.ok) return authResult.response;
+  const savedFiles: Awaited<ReturnType<typeof saveDrawingFile>>[] = [];
   try {
     const { id } = await context.params;
     const part = await prisma.productPart.findUnique({
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const startVersion = latestDrawing ? latestDrawing.version + 1 : 1;
     const remark = normalizeOptional(formData.get("remark"));
 
-    const savedFiles = await Promise.all(files.map((file) => saveDrawingFile(part.id, file)));
+    for (const file of files) savedFiles.push(await saveDrawingFile(part.id, file));
     const drawings = await prisma.$transaction(
       savedFiles.map((savedFile, index) =>
         prisma.partDrawing.create({
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ drawings: drawings.map(withProtectedDrawingUrls) });
   } catch (error) {
+    await deleteSavedDrawingFiles(savedFiles);
     return NextResponse.json({ error: errorMessage(error, "上传图纸失败。") }, { status: 500 });
   }
 }
