@@ -1,161 +1,44 @@
 import { NextResponse } from "next/server";
-import { execFileSync } from "child_process";
-import { access, copyFile, cp, mkdir, stat, writeFile } from "fs/promises";
+import { copyFile, mkdir, rename, rm, stat, writeFile, open } from "fs/promises";
 import path from "path";
+import { execFileSync } from "child_process";
+import { prisma } from "@/lib/prisma";
 import { requireApiUser } from "@/lib/auth/api-user";
+import { backupPaths, backupRoot, copyDirectoryOrCreateEmpty, storageLayoutVersion } from "@/lib/system-backup";
 
 export const runtime = "nodejs";
 
-const backupRoot = "C:\\金鸿ERP备份";
-const gitTimeout = 3000;
-
-function padNumber(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-function formatTimestamp(date: Date) {
-  const year = date.getFullYear();
-  const month = padNumber(date.getMonth() + 1);
-  const day = padNumber(date.getDate());
-  const hour = padNumber(date.getHours());
-  const minute = padNumber(date.getMinutes());
-  const second = padNumber(date.getSeconds());
-  return `${year}${month}${day}_${hour}${minute}${second}`;
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function readGitValue(args: string[], fallback: string) {
-  try {
-    const result = execFileSync("git", args, {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      timeout: gitTimeout,
-      windowsHide: true
-    });
-    return result.trim() || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function readGitVersion() {
-  return {
-    commit: readGitValue(["rev-parse", "HEAD"], "无法读取"),
-    tag: readGitValue(["describe", "--tags", "--exact-match"], "未标记")
-  };
-}
-
-async function ensureFile(filePath: string) {
-  await access(filePath);
-  const fileStat = await stat(filePath);
-  if (!fileStat.isFile()) {
-    throw new Error(`${filePath} 不是文件。`);
-  }
-}
-
-async function ensureDirectory(directoryPath: string) {
-  await access(directoryPath);
-  const directoryStat = await stat(directoryPath);
-  if (!directoryStat.isDirectory()) {
-    throw new Error(`${directoryPath} 不是文件夹。`);
-  }
-}
-
-async function createUniqueBackupDirectory(baseDir: string) {
-  for (let index = 0; index < 100; index += 1) {
-    const candidate = index === 0 ? baseDir : `${baseDir}_${index}`;
-
-    try {
-      await mkdir(candidate, { recursive: false });
-      return candidate;
-    } catch (error) {
-      const code = error instanceof Error && "code" in error ? (error as NodeJS.ErrnoException).code : null;
-      if (code !== "EEXIST") {
-        throw error;
-      }
-    }
-  }
-
-  throw new Error("备份目录重复次数过多，请稍后重试。");
-}
+function timestamp() { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}_${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}${String(d.getSeconds()).padStart(2, "0")}`; }
+function git(args: string[], fallback: string) { try { return execFileSync("git", args, { cwd: process.cwd(), encoding: "utf8", timeout: 3000, windowsHide: true }).trim() || fallback; } catch { return fallback; } }
 
 export async function POST() {
   const authResult = await requireApiUser();
   if (!authResult.ok) return authResult.response;
-  const projectRoot = process.cwd();
-  const databaseSource = path.join(projectRoot, "prisma", "dev.db");
-  const uploadsSource = path.join(projectRoot, "public", "uploads");
-  let backupDir = path.join(backupRoot, `backup_${formatTimestamp(new Date())}`);
-  const errors: string[] = [];
-  let databaseCopied = false;
-  let uploadsCopied = false;
-  let infoWritten = false;
-
+  const name = `backup_${timestamp()}`;
+  const tempDir = path.join(backupRoot, `${name}_tmp`);
+  const finalDir = path.join(backupRoot, name);
+  const paths = backupPaths();
   try {
     await mkdir(backupRoot, { recursive: true });
-    backupDir = await createUniqueBackupDirectory(backupDir);
+    await mkdir(tempDir, { recursive: false });
+    const databaseStat = await stat(paths.database);
+    if (!databaseStat.isFile() || databaseStat.size <= 0) throw new Error("数据库文件不可用。");
+    await copyFile(paths.database, path.join(tempDir, "dev.db"));
+    const copiedDatabase = await stat(path.join(tempDir, "dev.db"));
+    const handle = await open(path.join(tempDir, "dev.db"), "r");
+    const header = Buffer.alloc(16); await handle.read(header, 0, 16, 0); await handle.close();
+    if (copiedDatabase.size !== databaseStat.size || !header.equals(Buffer.from("SQLite format 3\0", "ascii"))) throw new Error("数据库备份校验失败。");
+    const publicCopy = await copyDirectoryOrCreateEmpty(paths.publicUploads, path.join(tempDir, "uploads"));
+    const privateCopy = await copyDirectoryOrCreateEmpty(paths.privateUploads, path.join(tempDir, "private-uploads"));
+    const drawingCount = await prisma.partDrawing.count();
+    if ((publicCopy.sourceStats.exists && !publicCopy.matches) || (privateCopy.sourceStats.exists && !privateCopy.matches) || (drawingCount > 0 && !publicCopy.sourceStats.exists && !privateCopy.sourceStats.exists)) throw new Error("上传文件备份校验失败。");
+    const privateStatus = privateCopy.sourceStats.exists ? "存在" : "尚未启用";
+    const info = ["项目名称：金鸿ERP", `备份时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`, `Git提交：${git(["rev-parse", "HEAD"], "无法读取")}`, `Git标签：${git(["describe", "--tags", "--exact-match"], "当前提交未打标签")}`, `存储布局版本：${storageLayoutVersion}`, "公开存储源：public/uploads", `公开存储状态：${publicCopy.sourceStats.exists ? "存在" : "不存在"}`, `公开存储文件数：${publicCopy.sourceStats.fileCount}`, `公开存储总大小：${publicCopy.sourceStats.size}`, "私有存储源：storage/uploads", `私有存储状态：${privateStatus}`, `私有存储文件数：${privateCopy.sourceStats.fileCount}`, `私有存储总大小：${privateCopy.sourceStats.size}`, "备份公开目录：uploads", "备份私有目录：private-uploads", `PartDrawing记录数：${drawingCount}`, "备份健康状态：正常"].join("\n");
+    await writeFile(path.join(tempDir, "backup-info.txt"), info, "utf8");
+    await rename(tempDir, finalDir);
+    return NextResponse.json({ success: true, backupDir: name, databaseCopied: true, uploadsCopied: publicCopy.sourceStats.exists, privateUploadsCopied: privateCopy.sourceStats.exists });
   } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        backupDir,
-        databaseCopied,
-        uploadsCopied,
-        error: `创建备份目录失败：${errorMessage(error)}`
-      },
-      { status: 500 }
-    );
+    try { await rm(tempDir, { recursive: true, force: true }); } catch {}
+    return NextResponse.json({ success: false, databaseCopied: false, uploadsCopied: false, error: error instanceof Error ? `创建备份失败：${error.message}` : "创建备份失败。" }, { status: 500 });
   }
-
-  try {
-    await ensureFile(databaseSource);
-    await copyFile(databaseSource, path.join(backupDir, "dev.db"));
-    databaseCopied = true;
-  } catch (error) {
-    errors.push(`数据库备份失败：${errorMessage(error)}`);
-  }
-
-  try {
-    await ensureDirectory(uploadsSource);
-    await cp(uploadsSource, path.join(backupDir, "uploads"), { recursive: true });
-    uploadsCopied = true;
-  } catch (error) {
-    errors.push(`上传图纸备份失败：${errorMessage(error)}`);
-  }
-
-  try {
-    const backupTime = new Date().toLocaleString("zh-CN", { hour12: false });
-    const gitVersion = readGitVersion();
-    const backupInfo = [
-      "项目名称：金鸿ERP",
-      `备份时间：${backupTime}`,
-      `数据库来源：${databaseSource}`,
-      `上传文件来源：${uploadsSource}`,
-      `备份目录：${backupDir}`,
-      `Git提交：${gitVersion.commit}`,
-      `Git标签：${gitVersion.tag}`,
-      "说明：此备份包含数据库和上传图纸，不包含 node_modules 和 .next。",
-      "说明：代码请通过 GitHub 或 Git 标签备份。"
-    ].join("\n");
-    await writeFile(path.join(backupDir, "backup-info.txt"), backupInfo, "utf8");
-    infoWritten = true;
-  } catch (error) {
-    errors.push(`备份说明写入失败：${errorMessage(error)}`);
-  }
-
-  const success = databaseCopied && uploadsCopied && infoWritten && errors.length === 0;
-
-  return NextResponse.json(
-    {
-      success,
-      backupDir,
-      databaseCopied,
-      uploadsCopied,
-      ...(success ? {} : { error: errors.join("；") || "备份失败。" })
-    },
-    { status: success ? 200 : 500 }
-  );
 }

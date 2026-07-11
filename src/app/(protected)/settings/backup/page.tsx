@@ -35,6 +35,11 @@ type BackupRecord = {
   healthStatus: "COMPLETE" | "WARNING" | "INCOMPLETE";
   healthLabel: string;
   healthMessages: string[];
+  storageLayoutVersion?: string;
+  privateUploadsExists?: boolean;
+  privateUploadsFileCount?: number;
+  privateUploadsSizeText?: string;
+  privateStorageStatus?: string;
 };
 
 type BackupRecordResponse = {
@@ -47,6 +52,7 @@ type BackupRecordResponse = {
 
 const databasePath = "prisma/dev.db";
 const uploadsPath = "public/uploads";
+const privateUploadsPath = "storage/uploads";
 const backupTarget = "C:\\金鸿ERP备份";
 
 function StatusBadge({ value }: { value: boolean }) {
@@ -150,7 +156,7 @@ export default function BackupPage() {
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold">备份内容</h2>
-        <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
+        <div className="mt-4 grid gap-3 text-sm md:grid-cols-4">
           <div className="rounded-md border border-[#eef2f6] bg-[#f6f7f9] p-4">
             <div className="font-medium text-[#667085]">数据库路径</div>
             <div className="mt-2 break-all font-mono text-[#172033]">{databasePath}</div>
@@ -158,6 +164,10 @@ export default function BackupPage() {
           <div className="rounded-md border border-[#eef2f6] bg-[#f6f7f9] p-4">
             <div className="font-medium text-[#667085]">上传文件路径</div>
             <div className="mt-2 break-all font-mono text-[#172033]">{uploadsPath}</div>
+          </div>
+          <div className="rounded-md border border-[#eef2f6] bg-[#f6f7f9] p-4">
+            <div className="font-medium text-[#667085]">私有图纸路径</div>
+            <div className="mt-2 break-all font-mono text-[#172033]">{privateUploadsPath}（当前尚未启用）</div>
           </div>
           <div className="rounded-md border border-[#eef2f6] bg-[#f6f7f9] p-4">
             <div className="font-medium text-[#667085]">备份目标</div>
@@ -279,6 +289,14 @@ export default function BackupPage() {
                   <div className="rounded-md bg-[#f6f7f9] p-3">
                     <div className="font-medium text-[#667085]">uploads 大小</div>
                     <div className="mt-1 text-[#172033]">{record.uploadsSizeText}</div>
+                  </div>
+                  <div className="rounded-md bg-[#f6f7f9] p-3">
+                    <div className="font-medium text-[#667085]">存储布局</div>
+                    <div className="mt-1 text-[#172033]">{record.storageLayoutVersion ?? "v1-legacy-public"}</div>
+                  </div>
+                  <div className="rounded-md bg-[#f6f7f9] p-3">
+                    <div className="font-medium text-[#667085]">私有图纸目录</div>
+                    <div className="mt-1 text-[#172033]">{record.privateStorageStatus ?? "旧备份未记录"} · {record.privateUploadsFileCount ?? 0} 个 · {record.privateUploadsSizeText ?? "0 B"}</div>
                   </div>
                   <div className="rounded-md bg-[#f6f7f9] p-3">
                     <div className="font-medium text-[#667085]">备份总大小</div>

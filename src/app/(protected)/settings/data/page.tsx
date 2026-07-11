@@ -224,7 +224,7 @@ export default async function DataManagementPage() {
       <section className="rounded-md border border-amber-200 bg-amber-50 p-5">
         <h2 className="text-lg font-semibold text-amber-900">备份保护提醒</h2>
         <p className="mt-2 font-medium text-amber-900">在进行任何正式数据整理前，必须先完成系统备份。</p>
-        <p className="mt-2 text-sm text-amber-800">当前备份功能会保存 prisma/dev.db、public/uploads 和 backup-info.txt。</p>
+        <p className="mt-2 text-sm text-amber-800">当前备份功能会保存 prisma/dev.db、public/uploads、未来启用的 storage/uploads 和 backup-info.txt。</p>
         <div className="mt-3 break-all rounded-md border border-amber-200 bg-white/70 px-3 py-2 font-mono text-sm text-[#172033]">{backupTarget}</div>
         <Link
           href="/settings/backup"
