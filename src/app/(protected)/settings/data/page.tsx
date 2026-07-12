@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import Link from "next/link";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +62,8 @@ function formatFileSize(size: number) {
 }
 
 export default async function DataManagementPage() {
+  await requirePagePermission("dataManagement.view");
+
   const databasePath = path.join(process.cwd(), "prisma", "dev.db");
   const [
     customerCount,

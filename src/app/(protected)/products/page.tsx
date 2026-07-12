@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { getProductStatusLabel } from "@/lib/product-status";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProductsPage() {
+  await requirePagePermission("product.view");
+
   const products = await prisma.product.findMany({
     orderBy: { createdAt: "desc" },
     include: {

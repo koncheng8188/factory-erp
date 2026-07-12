@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import Link from "next/link";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { getProductPartStatusLabel, isProductPartStatus, productPartStatusOptions } from "@/lib/product-part-status";
 import { prisma } from "@/lib/prisma";
 import { getDrawingThumbnailUrl } from "@/lib/drawing-file-url";
@@ -56,6 +57,8 @@ function StatCard({ title, value }: { title: string; value: number }) {
 }
 
 export default async function PartsPage({ searchParams }: PartsPageProps) {
+  await requirePagePermission("part.view");
+
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
   const rawStatus = firstQueryValue(params?.status).trim();
