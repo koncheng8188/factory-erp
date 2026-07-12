@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { formatDisplayDate, outsourceTypeLabels, type OutsourceTypeValue } from "@/lib/outsource";
 import { getOutsourceStatusLabel } from "@/lib/outsource-status";
@@ -15,6 +16,8 @@ function typeLabel(type: string) {
 }
 
 export default async function ReturnDetailPage({ params }: ReturnDetailPageProps) {
+  await requirePagePermission("return.view");
+
   const { id } = await params;
   const returnOrder = await prisma.outsourceReturn.findUnique({
     where: { id },

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { formatDisplayDate } from "@/lib/delivery";
 import { getDeliveryStatusLabel } from "@/lib/delivery-status";
@@ -11,6 +12,8 @@ type DeliveryDetailPageProps = {
 };
 
 export default async function DeliveryDetailPage({ params }: DeliveryDetailPageProps) {
+  await requirePagePermission("delivery.view");
+
   const { id } = await params;
   const deliveryOrder = await prisma.deliveryOrder.findFirst({
     where: {

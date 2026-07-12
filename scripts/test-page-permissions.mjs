@@ -10,6 +10,9 @@ const files = {
   products: "src/app/(protected)/products/page.tsx",
   parts: "src/app/(protected)/parts/page.tsx",
   data: "src/app/(protected)/settings/data/page.tsx",
+  returns: "src/app/(protected)/returns/page.tsx",
+  returnDetail: "src/app/(protected)/returns/[id]/page.tsx",
+  deliveryDetail: "src/app/(protected)/delivery/[id]/page.tsx",
   layout: "src/app/(protected)/layout.tsx",
   forbidden: "src/app/(protected)/forbidden/page.tsx"
 };
@@ -24,6 +27,10 @@ function assertBefore(content, first, later) {
   assert.notEqual(firstIndex, -1, `未找到 ${first}`);
   assert.notEqual(laterIndex, -1, `未找到 ${later}`);
   assert.ok(firstIndex < laterIndex, `${first} 必须出现在 ${later} 之前`);
+}
+
+function occurrenceCount(content, value) {
+  return content.split(value).length - 1;
 }
 
 function menuEntry(label) {
@@ -43,30 +50,32 @@ test("数据管理页引用页面权限助手", () => assert.match(source.data, 
 test("数据管理页使用 dataManagement.view", () => assert.match(source.data, /requirePagePermission\("dataManagement\.view"\)/));
 test("数据管理页先鉴权再查询 Prisma", () => assertBefore(source.data, 'requirePagePermission("dataManagement.view")', "prisma.customer.count"));
 test("数据管理页先鉴权再读取文件系统", () => assertBefore(source.data, 'requirePagePermission("dataManagement.view")', "fs.stat"));
-test("三个页面均不读取 Cookie", () => {
-  for (const key of ["products", "parts", "data"]) assert.doesNotMatch(source[key], /cookies\(|document\.cookie/);
+test("已接入页面均不读取 Cookie", () => {
+  for (const key of ["products", "parts", "data", "returns", "returnDetail", "deliveryDetail"]) assert.doesNotMatch(source[key], /cookies\(|document\.cookie/);
 });
-test("三个页面均无角色硬编码", () => {
-  for (const key of ["products", "parts", "data"]) assert.doesNotMatch(source[key], /role\s*(?:===|!==)/);
+test("已接入页面均无角色硬编码", () => {
+  for (const key of ["products", "parts", "data", "returns", "returnDetail", "deliveryDetail"]) assert.doesNotMatch(source[key], /role\s*(?:===|!==)/);
 });
-test("三个页面均不重复调用 requirePageUser", () => {
-  for (const key of ["products", "parts", "data"]) assert.doesNotMatch(source[key], /requirePageUser/);
+test("已接入页面均不重复调用 requirePageUser", () => {
+  for (const key of ["products", "parts", "data", "returns", "returnDetail", "deliveryDetail"]) assert.doesNotMatch(source[key], /requirePageUser/);
 });
 test("布局仍调用 requirePageUser", () => assert.match(source.layout, /const user = await requirePageUser\(\)/));
 test("产品菜单绑定 product.view", () => assert.equal(menuEntry("产品管理"), "product.view"));
 test("部件菜单绑定 part.view", () => assert.equal(menuEntry("部件管理"), "part.view"));
 test("数据管理菜单绑定 dataManagement.view", () => assert.equal(menuEntry("数据管理"), "dataManagement.view"));
+test("回厂登记菜单绑定 return.view", () => assert.equal(menuEntry("回厂登记"), "return.view"));
+test("送货管理菜单继续不绑定权限", () => assert.equal(menuEntry("送货管理"), undefined));
 test("布局使用 hasPermission 和空覆盖", () => assert.match(source.layout, /hasPermission\(role, item\.permission, \[\]\)/));
 test("布局没有角色硬编码", () => assert.doesNotMatch(source.layout, /role\s*(?:===|!==)/));
 test("未接入菜单没有提前绑定权限", () => {
-  for (const label of ["首页看板", "客户管理", "图纸管理", "订单管理", "生产进度", "齐套检查", "外发电镀", "回厂登记", "送货管理", "生产日报", "生产异常", "Excel 导入", "系统备份"]) {
+  for (const label of ["首页看板", "客户管理", "图纸管理", "订单管理", "生产进度", "齐套检查", "外发电镀", "送货管理", "生产日报", "生产异常", "Excel 导入", "系统备份"]) {
     assert.equal(menuEntry(label), undefined, `${label} 不应提前绑定权限`);
   }
 });
 test("forbidden 页面不调用业务权限助手", () => assert.doesNotMatch(source.forbidden, /requirePage(?:Any|All)?Permission/));
 test("导航绑定的权限键全部合法", () => {
   const bound = [...source.layout.matchAll(/permission: "([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(bound, ["product.view", "part.view", "dataManagement.view"]);
+  assert.deepEqual(bound, ["product.view", "part.view", "return.view", "dataManagement.view"]);
   for (const permission of bound) assert.equal(isPermission(permission), true);
 });
 test("SALES 默认具有产品和部件查看权限", () => {
@@ -80,6 +89,54 @@ test("DELIVERY 默认具有产品和部件查看权限", () => {
   assert.equal(hasPermission("DELIVERY", "product.view"), true);
   assert.equal(hasPermission("DELIVERY", "part.view"), true);
 });
+test("回厂列表先鉴权再解析筛选参数和查询 Prisma", () => {
+  assert.match(source.returns, /requirePagePermission\("return\.view"\)/);
+  assertBefore(source.returns, 'requirePagePermission("return.view")', "await searchParams");
+  assertBefore(source.returns, 'requirePagePermission("return.view")', "prisma.outsourceReturn.findMany");
+});
+test("回厂详情严格按鉴权、params、Prisma、notFound 顺序", () => {
+  assert.match(source.returnDetail, /requirePagePermission\("return\.view"\)/);
+  assertBefore(source.returnDetail, 'requirePagePermission("return.view")', "await params");
+  assertBefore(source.returnDetail, "await params", "prisma.outsourceReturn.findUnique");
+  assertBefore(source.returnDetail, "prisma.outsourceReturn.findUnique", "notFound()");
+});
+test("送货详情严格按鉴权、params、Prisma、notFound 顺序", () => {
+  assert.match(source.deliveryDetail, /requirePagePermission\("delivery\.view"\)/);
+  assertBefore(source.deliveryDetail, 'requirePagePermission("delivery.view")', "await params");
+  assertBefore(source.deliveryDetail, "await params", "prisma.deliveryOrder.findFirst");
+  assertBefore(source.deliveryDetail, "prisma.deliveryOrder.findFirst", "notFound()");
+});
+test("回厂和送货详情未提前接入创建或打印权限", () => {
+  for (const key of ["returns", "returnDetail"]) assert.doesNotMatch(source[key], /return\.(?:create|print)/);
+  assert.doesNotMatch(source.deliveryDetail, /delivery\.(?:create|print)/);
+});
+test("六个角色默认都具有回厂和送货查看权限", () => {
+  for (const role of ["ADMIN", "OWNER", "SALES", "PRODUCTION", "OUTSOURCE", "DELIVERY"]) {
+    assert.equal(hasPermission(role, "return.view"), true);
+    assert.equal(hasPermission(role, "delivery.view"), true);
+  }
+});
+test("回厂列表只调用一次页面权限助手", () => {
+  assert.equal(occurrenceCount(source.returns, 'requirePagePermission("return.view")'), 1);
+});
+test("回厂列表不调用 requirePageUser", () => assert.doesNotMatch(source.returns, /requirePageUser/));
+test("回厂列表不直接导入或读取 Cookie", () => assert.doesNotMatch(source.returns, /next\/headers|cookies\(|document\.cookie/));
+test("回厂列表不包含角色名称硬编码", () => assert.doesNotMatch(source.returns, /\b(?:ADMIN|OWNER|SALES|PRODUCTION|OUTSOURCE|DELIVERY)\b/));
+test("回厂列表权限检查早于首个 Prisma 调用", () => assertBefore(source.returns, 'requirePagePermission("return.view")', "prisma."));
+test("回厂详情只调用一次页面权限助手", () => {
+  assert.equal(occurrenceCount(source.returnDetail, 'requirePagePermission("return.view")'), 1);
+});
+test("回厂详情不调用 requirePageUser", () => assert.doesNotMatch(source.returnDetail, /requirePageUser/));
+test("回厂详情不直接导入或读取 Cookie", () => assert.doesNotMatch(source.returnDetail, /next\/headers|cookies\(|document\.cookie/));
+test("回厂详情 notFound 位于权限检查之后", () => assertBefore(source.returnDetail, 'requirePagePermission("return.view")', "notFound()"));
+test("回厂详情未接入 return.print", () => assert.doesNotMatch(source.returnDetail, /return\.print/));
+test("送货详情只调用一次页面权限助手", () => {
+  assert.equal(occurrenceCount(source.deliveryDetail, 'requirePagePermission("delivery.view")'), 1);
+});
+test("送货详情不调用 requirePageUser", () => assert.doesNotMatch(source.deliveryDetail, /requirePageUser/));
+test("送货详情不直接导入或读取 Cookie", () => assert.doesNotMatch(source.deliveryDetail, /next\/headers|cookies\(|document\.cookie/));
+test("送货详情 notFound 位于权限检查之后", () => assertBefore(source.deliveryDetail, 'requirePagePermission("delivery.view")', "notFound()"));
+test("送货详情未接入 delivery.print", () => assert.doesNotMatch(source.deliveryDetail, /delivery\.print/));
 test("业务 API 未引用新权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");
   const { readdir } = await import("node:fs/promises");
