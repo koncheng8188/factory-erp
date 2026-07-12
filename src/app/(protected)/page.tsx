@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { outsourceTypeLabels } from "@/lib/outsource";
 import { getOrderStatusLabel } from "@/lib/order-status";
@@ -173,6 +174,7 @@ function TodoCard({
 }
 
 export default async function DashboardPage() {
+  const user = await requirePagePermission("dashboard.view");
   const today = startOfToday();
   const tomorrow = startOfTomorrow(today);
 
