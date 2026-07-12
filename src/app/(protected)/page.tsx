@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { requirePagePermission } from "@/lib/auth/authorization";
+import { hasPermission } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { outsourceTypeLabels } from "@/lib/outsource";
 import { getOrderStatusLabel } from "@/lib/order-status";
@@ -175,59 +176,103 @@ function TodoCard({
 
 export default async function DashboardPage() {
   const user = await requirePagePermission("dashboard.view");
+  const canViewOrders = hasPermission(user.role, "order.view", []);
+  const canViewProduction = hasPermission(user.role, "production.view", []);
+  const canViewKitting = hasPermission(user.role, "kitting.view", []);
   const today = startOfToday();
   const tomorrow = startOfTomorrow(today);
 
-  const [
-    todayNewOrders,
-    activeOrders,
-    productionProducts,
-    unreturnedOutsourceItems,
-    overdueOutsourceOrders,
-    todayDueOutsourceOrders,
-    partialReturnOutsourceOrders,
-    kittingProducts,
-    deliverableProducts,
-    completedOrders,
-    partsWithoutDrawings,
-    thumbnailFailedDrawings,
-    orderStatusGroups,
-    overdueOutsourceTodoItems,
-    todayDueOutsourceTodoItems,
-    partialReturnOutsourceTodoItems,
-    abnormalReturnItemCount,
-    abnormalReturnTodoItems,
-    openProductionAbnormalCount,
-    openProductionAbnormalItems,
-    deliveryTodoProductCount,
-    deliveryTodoProducts,
-    missingDrawingPartCount,
-    missingDrawingParts,
-    pendingOrderCount,
-    pendingOrders
-  ] = await Promise.all([
-    prisma.order.count({
-      where: {
-        createdAt: {
-          gte: today,
-          lt: tomorrow
+  const orderDataPromise = canViewOrders
+    ? Promise.all([
+        prisma.order.count({
+          where: {
+            createdAt: {
+              gte: today,
+              lt: tomorrow
+            }
+          }
+        }),
+        prisma.order.count({
+          where: {
+            status: {
+              not: "COMPLETED"
+            }
+          }
+        }),
+        prisma.order.count({
+          where: {
+            status: "COMPLETED"
+          }
+        }),
+        prisma.order.groupBy({
+          by: ["status"],
+          _count: {
+            status: true
+          }
+        }),
+        prisma.order.count({
+          where: {
+            status: "PENDING"
+          }
+        }),
+        prisma.order.findMany({
+          where: {
+            status: "PENDING"
+          },
+          orderBy: {
+            orderDate: "desc"
+          },
+          take: 5,
+          select: {
+            id: true,
+            orderNo: true,
+            customerName: true,
+            orderDate: true,
+            deliveryDate: true
+          }
+        })
+      ]).then(([
+        todayNewOrders,
+        activeOrders,
+        completedOrders,
+        orderStatusGroups,
+        pendingOrderCount,
+        pendingOrders
+      ]) => ({
+        todayNewOrders,
+        activeOrders,
+        completedOrders,
+        orderStatusGroups,
+        pendingOrderCount,
+        pendingOrders
+      }))
+    : Promise.resolve(null);
+
+  const productionDataPromise = canViewProduction
+    ? prisma.product.count({
+        where: {
+          status: {
+            in: [...productionProductStatuses]
+          }
         }
-      }
-    }),
-    prisma.order.count({
-      where: {
-        status: {
-          not: "COMPLETED"
+      }).then((productionProducts) => ({ productionProducts }))
+    : Promise.resolve(null);
+
+  const kittingDataPromise = canViewKitting
+    ? prisma.product.findMany({
+        select: {
+          id: true,
+          parts: {
+            select: {
+              totalQuantity: true,
+              returnedQuantity: true
+            }
+          }
         }
-      }
-    }),
-    prisma.product.count({
-      where: {
-        status: {
-          in: [...productionProductStatuses]
-        }
-      }
-    }),
+      }).then((kittingProducts) => ({ kittingProducts }))
+    : Promise.resolve(null);
+
+  const remainingDashboardDataPromise = Promise.all([
     prisma.outsourceOrderItem.findMany({
       where: {
         missingQuantity: {
@@ -265,17 +310,6 @@ export default async function DashboardPage() {
       }
     }),
     prisma.product.findMany({
-      select: {
-        id: true,
-        parts: {
-          select: {
-            totalQuantity: true,
-            returnedQuantity: true
-          }
-        }
-      }
-    }),
-    prisma.product.findMany({
       where: {
         status: {
           in: [...deliverableProductStatuses]
@@ -291,11 +325,6 @@ export default async function DashboardPage() {
         }
       }
     }),
-    prisma.order.count({
-      where: {
-        status: "COMPLETED"
-      }
-    }),
     prisma.productPart.count({
       where: {
         drawings: {
@@ -306,12 +335,6 @@ export default async function DashboardPage() {
     prisma.partDrawing.count({
       where: {
         uploadStatus: "THUMBNAIL_FAILED"
-      }
-    }),
-    prisma.order.groupBy({
-      by: ["status"],
-      _count: {
-        status: true
       }
     }),
     prisma.outsourceOrder.findMany({
@@ -550,40 +573,60 @@ export default async function DashboardPage() {
         }
       }
     }),
-    prisma.order.count({
-      where: {
-        status: "PENDING"
-      }
-    }),
-    prisma.order.findMany({
-      where: {
-        status: "PENDING"
-      },
-      orderBy: {
-        orderDate: "desc"
-      },
-      take: 5,
-      select: {
-        id: true,
-        orderNo: true,
-        customerName: true,
-        orderDate: true,
-        deliveryDate: true
-      }
-    })
   ]);
+
+  const [
+    orderData,
+    productionData,
+    kittingData,
+    remainingDashboardData
+  ] = await Promise.all([
+    orderDataPromise,
+    productionDataPromise,
+    kittingDataPromise,
+    remainingDashboardDataPromise
+  ]);
+
+  const [
+    unreturnedOutsourceItems,
+    overdueOutsourceOrders,
+    todayDueOutsourceOrders,
+    partialReturnOutsourceOrders,
+    deliverableProducts,
+    partsWithoutDrawings,
+    thumbnailFailedDrawings,
+    overdueOutsourceTodoItems,
+    todayDueOutsourceTodoItems,
+    partialReturnOutsourceTodoItems,
+    abnormalReturnItemCount,
+    abnormalReturnTodoItems,
+    openProductionAbnormalCount,
+    openProductionAbnormalItems,
+    deliveryTodoProductCount,
+    deliveryTodoProducts,
+    missingDrawingPartCount,
+    missingDrawingParts
+  ] = remainingDashboardData;
 
   const unreturnedOutsourceItemCount = unreturnedOutsourceItems.length;
   const unreturnedOutsourceQuantity = sumNumbers(unreturnedOutsourceItems.map((item) => item.missingQuantity));
-  const missingProducts = kittingProducts.filter((product) =>
-    product.parts.some((part) => Math.max(part.totalQuantity - part.returnedQuantity, 0) > 0)
-  );
-  const missingProductCount = missingProducts.length;
-  const missingPartQuantity = sumNumbers(
-    kittingProducts.flatMap((product) =>
-      product.parts.map((part) => Math.max(part.totalQuantity - part.returnedQuantity, 0))
-    )
-  );
+  const kittingSummary = kittingData === null
+    ? null
+    : (() => {
+        const missingProducts = kittingData.kittingProducts.filter((product) =>
+          product.parts.some((part) => Math.max(part.totalQuantity - part.returnedQuantity, 0) > 0)
+        );
+        const missingPartQuantity = sumNumbers(
+          kittingData.kittingProducts.flatMap((product) =>
+            product.parts.map((part) => Math.max(part.totalQuantity - part.returnedQuantity, 0))
+          )
+        );
+
+        return {
+          missingProductCount: missingProducts.length,
+          missingPartQuantity
+        };
+      })();
   const pendingDeliveryProducts = deliverableProducts.filter((product) => {
     const deliveredQuantity = sumNumbers(product.deliveryOrderItems.map((item) => item.deliveryQuantity));
     return Math.max(product.quantity - deliveredQuantity, 0) > 0;
@@ -595,49 +638,57 @@ export default async function DashboardPage() {
       return Math.max(product.quantity - deliveredQuantity, 0);
     })
   );
-  const orderStatusCountMap = new Map(orderStatusGroups.map((group) => [group.status, group._count.status]));
+  const orderStatusCountMap = orderData === null
+    ? null
+    : new Map(orderData.orderStatusGroups.map((group) => [group.status, group._count.status]));
   const todayDateValue = formatDate(today);
 
   const statGroups = [
     {
       title: "订单概况",
-      cards: [
-        {
-          title: "今日新增订单",
-          value: todayNewOrders,
-          description: "今天创建的订单数量",
-          href: "/orders"
-        },
-        {
-          title: "进行中订单",
-          value: activeOrders,
-          description: "除已完成外的全部订单",
-          href: "/orders"
-        },
-        {
-          title: "已完成订单",
-          value: completedOrders,
-          description: "状态为 COMPLETED 的订单",
-          href: "/orders"
-        }
-      ]
+      cards: orderData === null
+        ? []
+        : [
+            {
+              title: "今日新增订单",
+              value: orderData.todayNewOrders,
+              description: "今天创建的订单数量",
+              href: "/orders"
+            },
+            {
+              title: "进行中订单",
+              value: orderData.activeOrders,
+              description: "除已完成外的全部订单",
+              href: "/orders"
+            },
+            {
+              title: "已完成订单",
+              value: orderData.completedOrders,
+              description: "状态为 COMPLETED 的订单",
+              href: "/orders"
+            }
+          ]
     },
     {
       title: "生产与齐套",
       cards: [
-        {
-          title: "生产中产品",
-          value: productionProducts,
-          description: "未完成且未进入待送货的产品",
-          href: "/production"
-        },
-        {
-          title: "缺件产品",
-          value: missingProductCount,
-          description: `仍缺 ${missingPartQuantity} 件部件`,
-          href: "/kitting",
-          tone: "warning" as const
-        },
+        ...(productionData !== null
+          ? [{
+              title: "生产中产品",
+              value: productionData.productionProducts,
+              description: "未完成且未进入待送货的产品",
+              href: "/production"
+            }]
+          : []),
+        ...(kittingSummary !== null
+          ? [{
+              title: "缺件产品",
+              value: kittingSummary.missingProductCount,
+              description: `仍缺 ${kittingSummary.missingPartQuantity} 件部件`,
+              href: "/kitting",
+              tone: "warning" as const
+            }]
+          : []),
         {
           title: "无图纸部件",
           value: partsWithoutDrawings,
@@ -696,7 +747,7 @@ export default async function DashboardPage() {
         }
       ]
     }
-  ];
+  ].filter((group) => group.cards.length > 0);
 
   const commonActionLinks = [
     { label: "新建订单", href: "/orders" },
@@ -871,44 +922,48 @@ export default async function DashboardPage() {
             ))}
           </TodoCard>
 
-          <TodoCard title="待处理订单" count={pendingOrderCount} href="/orders?status=PENDING" hasItems={pendingOrders.length > 0}>
-            {pendingOrders.map((order) => (
-              <Link
-                key={order.id}
-                href={`/orders/${order.id}`}
-                className="block rounded-md border border-[#eef2f6] bg-[#f6f7f9] px-3 py-2 text-sm transition hover:border-[#cfd6e1] hover:bg-white"
-              >
-                <div className="font-medium text-[#172033]">{order.orderNo}</div>
-                <div className="mt-1 text-[#667085]">{order.customerName}</div>
-                <div className="mt-1 text-[#667085]">
-                  下单 {formatDate(order.orderDate)} · 交货 {formatDate(order.deliveryDate)}
-                </div>
-              </Link>
-            ))}
-          </TodoCard>
+          {orderData !== null ? (
+            <TodoCard title="待处理订单" count={orderData.pendingOrderCount} href="/orders?status=PENDING" hasItems={orderData.pendingOrders.length > 0}>
+              {orderData.pendingOrders.map((order) => (
+                <Link
+                  key={order.id}
+                  href={`/orders/${order.id}`}
+                  className="block rounded-md border border-[#eef2f6] bg-[#f6f7f9] px-3 py-2 text-sm transition hover:border-[#cfd6e1] hover:bg-white"
+                >
+                  <div className="font-medium text-[#172033]">{order.orderNo}</div>
+                  <div className="mt-1 text-[#667085]">{order.customerName}</div>
+                  <div className="mt-1 text-[#667085]">
+                    下单 {formatDate(order.orderDate)} · 交货 {formatDate(order.deliveryDate)}
+                  </div>
+                </Link>
+              ))}
+            </TodoCard>
+          ) : null}
         </div>
       </section>
 
-      <section className={`${card} p-5`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className={sectionTitle}>订单状态统计</h2>
-          <Link className="text-sm font-medium text-[#475467] hover:text-[#172033]" href="/orders">
-            查看订单
-          </Link>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
-          {orderStatuses.map((status) => (
-            <Link
-              key={status}
-              href={`/orders?status=${status}`}
-              className={statCard}
-            >
-              <div className="break-words text-xs font-medium text-[#667085]">{getOrderStatusLabel(status)}</div>
-              <div className="mt-2 text-2xl font-semibold">{orderStatusCountMap.get(status) ?? 0}</div>
+      {orderData !== null && orderStatusCountMap !== null ? (
+        <section className={`${card} p-5`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className={sectionTitle}>订单状态统计</h2>
+            <Link className="text-sm font-medium text-[#475467] hover:text-[#172033]" href="/orders">
+              查看订单
             </Link>
-          ))}
-        </div>
-      </section>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+            {orderStatuses.map((status) => (
+              <Link
+                key={status}
+                href={`/orders?status=${status}`}
+                className={statCard}
+              >
+                <div className="break-words text-xs font-medium text-[#667085]">{getOrderStatusLabel(status)}</div>
+                <div className="mt-2 text-2xl font-semibold">{orderStatusCountMap.get(status) ?? 0}</div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <section className={`${card} p-5`}>

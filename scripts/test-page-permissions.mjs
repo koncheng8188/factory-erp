@@ -34,6 +34,14 @@ function occurrenceCount(content, value) {
   return content.split(value).length - 1;
 }
 
+function sourceSlice(content, start, end) {
+  const startIndex = content.indexOf(start);
+  const endIndex = content.indexOf(end, startIndex + start.length);
+  assert.notEqual(startIndex, -1, `未找到 ${start}`);
+  assert.notEqual(endIndex, -1, `未找到 ${end}`);
+  return content.slice(startIndex, endIndex);
+}
+
 function menuEntry(label) {
   const match = new RegExp(`\\{ href: "[^"]+", label: "${label}"(?:, permission: "([^"]+)")? \\}`).exec(source.layout);
   assert.ok(match, `未找到菜单：${label}`);
@@ -160,6 +168,63 @@ test("首页导航绑定的权限键全部合法", () => {
   for (const permission of bound) assert.equal(isPermission(permission), true);
 });
 test("首页仍保留原 26 项 Prisma 查询", () => assert.equal((source.dashboard.match(/prisma\./g) ?? []).length, 26));
+test("首页导入 hasPermission", () => assert.match(source.dashboard, /import \{ hasPermission \} from "@\/lib\/permissions"/));
+test("首页订单查看变量使用 order.view", () => assert.match(source.dashboard, /const canViewOrders = hasPermission\(user\.role, "order\.view", \[\]\)/));
+test("首页生产查看变量使用 production.view", () => assert.match(source.dashboard, /const canViewProduction = hasPermission\(user\.role, "production\.view", \[\]\)/));
+test("首页齐套查看变量使用 kitting.view", () => assert.match(source.dashboard, /const canViewKitting = hasPermission\(user\.role, "kitting\.view", \[\]\)/));
+test("订单条件模块严格包含六项 Prisma 查询", () => {
+  const orderData = sourceSlice(source.dashboard, "const orderDataPromise", "const productionDataPromise");
+  assert.equal((orderData.match(/prisma\./g) ?? []).length, 6);
+});
+test("生产条件模块严格包含一项 Prisma 查询", () => {
+  const productionData = sourceSlice(source.dashboard, "const productionDataPromise", "const kittingDataPromise");
+  assert.equal((productionData.match(/prisma\./g) ?? []).length, 1);
+});
+test("齐套条件模块严格包含一项 Prisma 查询", () => {
+  const kittingData = sourceSlice(source.dashboard, "const kittingDataPromise", "const remainingDashboardDataPromise");
+  assert.equal((kittingData.match(/prisma\./g) ?? []).length, 1);
+});
+test("剩余看板模块严格包含十八项 Prisma 查询", () => {
+  const remainingData = sourceSlice(source.dashboard, "const remainingDashboardDataPromise", "const [\n    orderData,");
+  assert.equal((remainingData.match(/prisma\./g) ?? []).length, 18);
+});
+test("三个条件模块无权限时都返回 null", () => {
+  for (const [start, end] of [
+    ["const orderDataPromise", "const productionDataPromise"],
+    ["const productionDataPromise", "const kittingDataPromise"],
+    ["const kittingDataPromise", "const remainingDashboardDataPromise"]
+  ]) {
+    assert.match(sourceSlice(source.dashboard, start, end), /Promise\.resolve\(null\)/);
+  }
+});
+test("剩余模块不重复订单、生产或齐套查询", () => {
+  const remainingData = sourceSlice(source.dashboard, "const remainingDashboardDataPromise", "const [\n    orderData,");
+  for (const query of ["prisma.order.groupBy", "prisma.order.findMany", "productionProductStatuses", "totalQuantity", "returnedQuantity"]) {
+    assert.doesNotMatch(remainingData, new RegExp(query.replaceAll(".", "\\.")));
+  }
+});
+test("剩余十八项解构顺序与批准映射一致", () => {
+  assert.match(source.dashboard, /const \[\s+unreturnedOutsourceItems,\s+overdueOutsourceOrders,\s+todayDueOutsourceOrders,\s+partialReturnOutsourceOrders,\s+deliverableProducts,\s+partsWithoutDrawings,\s+thumbnailFailedDrawings,\s+overdueOutsourceTodoItems,\s+todayDueOutsourceTodoItems,\s+partialReturnOutsourceTodoItems,\s+abnormalReturnItemCount,\s+abnormalReturnTodoItems,\s+openProductionAbnormalCount,\s+openProductionAbnormalItems,\s+deliveryTodoProductCount,\s+deliveryTodoProducts,\s+missingDrawingPartCount,\s+missingDrawingParts\s+\] = remainingDashboardData/);
+});
+test("订单三张统计卡读取 orderData 字段", () => {
+  for (const field of ["todayNewOrders", "activeOrders", "completedOrders"]) assert.match(source.dashboard, new RegExp(`value: orderData\\.${field}`));
+});
+test("待处理订单待办受 orderData null 边界控制", () => {
+  assert.match(source.dashboard, /\{orderData !== null \? \(\s+<TodoCard title="待处理订单" count=\{orderData\.pendingOrderCount\}/);
+});
+test("订单状态统计受 orderData 和状态映射 null 边界控制", () => {
+  assert.match(source.dashboard, /\{orderData !== null && orderStatusCountMap !== null \? \(/);
+});
+test("生产统计卡受 productionData null 边界控制", () => {
+  assert.match(source.dashboard, /\.\.\.\(productionData !== null\s+\? \[\{\s+title: "生产中产品",\s+value: productionData\.productionProducts/);
+});
+test("齐套派生计算受 kittingData null 边界控制", () => {
+  assert.match(source.dashboard, /const kittingSummary = kittingData === null\s+\? null/);
+  assert.match(source.dashboard, /kittingData\.kittingProducts\.filter/);
+});
+test("统计分组过滤没有卡片的权限分组", () => assert.match(source.dashboard, /\]\.filter\(\(group\) => group\.cards\.length > 0\)/));
+test("订单无权限不使用可选链伪装零数据", () => assert.doesNotMatch(source.dashboard, /orderData\?\./));
+test("齐套无权限不使用可选链伪装空数组", () => assert.doesNotMatch(source.dashboard, /kittingData\?\.kittingProducts \?\? \[\]/));
 test("业务 API 未引用新权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");
   const { readdir } = await import("node:fs/promises");
