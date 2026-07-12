@@ -179,6 +179,10 @@ export default async function DashboardPage() {
   const canViewOrders = hasPermission(user.role, "order.view", []);
   const canViewProduction = hasPermission(user.role, "production.view", []);
   const canViewKitting = hasPermission(user.role, "kitting.view", []);
+  const canViewOutsource = hasPermission(user.role, "outsource.view", []);
+  const canViewReturns = hasPermission(user.role, "return.view", []);
+  const canViewProductionAbnormal = hasPermission(user.role, "production.abnormal.view", []);
+  const canViewPartialReturns = canViewOutsource && canViewReturns;
   const today = startOfToday();
   const tomorrow = startOfTomorrow(today);
 
@@ -272,7 +276,8 @@ export default async function DashboardPage() {
       }).then((kittingProducts) => ({ kittingProducts }))
     : Promise.resolve(null);
 
-  const remainingDashboardDataPromise = Promise.all([
+  const outsourceDataPromise = canViewOutsource
+    ? Promise.all([
     prisma.outsourceOrderItem.findMany({
       where: {
         missingQuantity: {
@@ -304,39 +309,6 @@ export default async function DashboardPage() {
         }
       }
     }),
-    prisma.outsourceOrder.count({
-      where: {
-        status: "PARTIAL_RETURN"
-      }
-    }),
-    prisma.product.findMany({
-      where: {
-        status: {
-          in: [...deliverableProductStatuses]
-        }
-      },
-      select: {
-        id: true,
-        quantity: true,
-        deliveryOrderItems: {
-          select: {
-            deliveryQuantity: true
-          }
-        }
-      }
-    }),
-    prisma.productPart.count({
-      where: {
-        drawings: {
-          none: {}
-        }
-      }
-    }),
-    prisma.partDrawing.count({
-      where: {
-        uploadStatus: "THUMBNAIL_FAILED"
-      }
-    }),
     prisma.outsourceOrder.findMany({
       where: {
         expectedReturnDate: {
@@ -380,6 +352,28 @@ export default async function DashboardPage() {
         expectedReturnDate: true
       }
     }),
+      ]).then(([
+        unreturnedOutsourceItems,
+        overdueOutsourceOrders,
+        todayDueOutsourceOrders,
+        overdueOutsourceTodoItems,
+        todayDueOutsourceTodoItems
+      ]) => ({
+        unreturnedOutsourceItems,
+        overdueOutsourceOrders,
+        todayDueOutsourceOrders,
+        overdueOutsourceTodoItems,
+        todayDueOutsourceTodoItems
+      }))
+    : Promise.resolve(null);
+
+  const partialReturnDataPromise = canViewPartialReturns
+    ? Promise.all([
+        prisma.outsourceOrder.count({
+          where: {
+            status: "PARTIAL_RETURN"
+          }
+        }),
     prisma.outsourceOrder.findMany({
       where: {
         status: "PARTIAL_RETURN"
@@ -401,6 +395,17 @@ export default async function DashboardPage() {
         }
       }
     }),
+      ]).then(([
+        partialReturnOutsourceOrders,
+        partialReturnOutsourceTodoItems
+      ]) => ({
+        partialReturnOutsourceOrders,
+        partialReturnOutsourceTodoItems
+      }))
+    : Promise.resolve(null);
+
+  const returnDataPromise = canViewReturns
+    ? Promise.all([
     prisma.outsourceReturnItem.count({
       where: {
         abnormalQuantity: {
@@ -446,6 +451,17 @@ export default async function DashboardPage() {
         }
       }
     }),
+      ]).then(([
+        abnormalReturnItemCount,
+        abnormalReturnTodoItems
+      ]) => ({
+        abnormalReturnItemCount,
+        abnormalReturnTodoItems
+      }))
+    : Promise.resolve(null);
+
+  const productionAbnormalDataPromise = canViewProductionAbnormal
+    ? Promise.all([
     prisma.productPartAbnormal.count({
       where: {
         status: "OPEN"
@@ -485,6 +501,44 @@ export default async function DashboardPage() {
             partName: true
           }
         }
+      }
+    }),
+      ]).then(([
+        openProductionAbnormalCount,
+        openProductionAbnormalItems
+      ]) => ({
+        openProductionAbnormalCount,
+        openProductionAbnormalItems
+      }))
+    : Promise.resolve(null);
+
+  const remainingDashboardDataPromise = Promise.all([
+    prisma.product.findMany({
+      where: {
+        status: {
+          in: [...deliverableProductStatuses]
+        }
+      },
+      select: {
+        id: true,
+        quantity: true,
+        deliveryOrderItems: {
+          select: {
+            deliveryQuantity: true
+          }
+        }
+      }
+    }),
+    prisma.productPart.count({
+      where: {
+        drawings: {
+          none: {}
+        }
+      }
+    }),
+    prisma.partDrawing.count({
+      where: {
+        uploadStatus: "THUMBNAIL_FAILED"
       }
     }),
     prisma.product.count({
@@ -579,37 +633,40 @@ export default async function DashboardPage() {
     orderData,
     productionData,
     kittingData,
+    outsourceData,
+    partialReturnData,
+    returnData,
+    productionAbnormalData,
     remainingDashboardData
   ] = await Promise.all([
     orderDataPromise,
     productionDataPromise,
     kittingDataPromise,
+    outsourceDataPromise,
+    partialReturnDataPromise,
+    returnDataPromise,
+    productionAbnormalDataPromise,
     remainingDashboardDataPromise
   ]);
 
   const [
-    unreturnedOutsourceItems,
-    overdueOutsourceOrders,
-    todayDueOutsourceOrders,
-    partialReturnOutsourceOrders,
     deliverableProducts,
     partsWithoutDrawings,
     thumbnailFailedDrawings,
-    overdueOutsourceTodoItems,
-    todayDueOutsourceTodoItems,
-    partialReturnOutsourceTodoItems,
-    abnormalReturnItemCount,
-    abnormalReturnTodoItems,
-    openProductionAbnormalCount,
-    openProductionAbnormalItems,
     deliveryTodoProductCount,
     deliveryTodoProducts,
     missingDrawingPartCount,
     missingDrawingParts
   ] = remainingDashboardData;
 
-  const unreturnedOutsourceItemCount = unreturnedOutsourceItems.length;
-  const unreturnedOutsourceQuantity = sumNumbers(unreturnedOutsourceItems.map((item) => item.missingQuantity));
+  const outsourceSummary = outsourceData === null
+    ? null
+    : {
+        unreturnedOutsourceItemCount: outsourceData.unreturnedOutsourceItems.length,
+        unreturnedOutsourceQuantity: sumNumbers(
+          outsourceData.unreturnedOutsourceItems.map((item) => item.missingQuantity)
+        )
+      };
   const kittingSummary = kittingData === null
     ? null
     : (() => {
@@ -707,32 +764,38 @@ export default async function DashboardPage() {
     {
       title: "外发与回厂",
       cards: [
-        {
-          title: "外发未回",
-          value: unreturnedOutsourceItemCount,
-          description: `未回总件数 ${unreturnedOutsourceQuantity}`,
-          href: "/outsourcing"
-        },
-        {
-          title: "外发超期未回",
-          value: overdueOutsourceOrders,
-          description: "预计回厂日期早于今天",
-          href: "/outsourcing",
-          tone: "danger" as const
-        },
-        {
-          title: "今日应回外发",
-          value: todayDueOutsourceOrders,
-          description: "预计今天回厂的外发单",
-          href: "/outsourcing",
-          tone: "warning" as const
-        },
-        {
-          title: "部分回厂",
-          value: partialReturnOutsourceOrders,
-          description: "状态为 PARTIAL_RETURN 的外发单",
-          href: "/returns"
-        }
+        ...(outsourceData !== null && outsourceSummary !== null
+          ? [
+              {
+                title: "外发未回",
+                value: outsourceSummary.unreturnedOutsourceItemCount,
+                description: `未回总件数 ${outsourceSummary.unreturnedOutsourceQuantity}`,
+                href: "/outsourcing"
+              },
+              {
+                title: "外发超期未回",
+                value: outsourceData.overdueOutsourceOrders,
+                description: "预计回厂日期早于今天",
+                href: "/outsourcing",
+                tone: "danger" as const
+              },
+              {
+                title: "今日应回外发",
+                value: outsourceData.todayDueOutsourceOrders,
+                description: "预计今天回厂的外发单",
+                href: "/outsourcing",
+                tone: "warning" as const
+              }
+            ]
+          : []),
+        ...(partialReturnData !== null
+          ? [{
+              title: "部分回厂",
+              value: partialReturnData.partialReturnOutsourceOrders,
+              description: "状态为 PARTIAL_RETURN 的外发单",
+              href: "/returns"
+            }]
+          : [])
       ]
     },
     {
@@ -794,61 +857,68 @@ export default async function DashboardPage() {
           </div>
         </div>
         <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-          <TodoCard title="超期未回外发" count={overdueOutsourceOrders} href="/outsourcing?overdue=1" tone="danger" hasItems={overdueOutsourceTodoItems.length > 0}>
-            {overdueOutsourceTodoItems.map((item) => (
-              <Link
-                key={item.id}
-                href={`/outsourcing/${item.id}`}
-                className="block rounded-md border border-red-100 bg-red-50/60 px-3 py-2 text-sm transition hover:border-red-200 hover:bg-red-50"
-              >
-                <div className="font-medium text-[#172033]">{item.outsourceNo}</div>
-                <div className="mt-1 text-[#667085]">
-                  {item.supplierName} · {outsourceTypeLabels[item.outsourceType]} · {formatDate(item.expectedReturnDate)}
-                </div>
-                <div className="mt-1 font-medium text-red-700">超期 {getOverdueDays(today, item.expectedReturnDate)} 天</div>
-              </Link>
-            ))}
-          </TodoCard>
+          {outsourceData !== null ? (
+            <TodoCard title="超期未回外发" count={outsourceData.overdueOutsourceOrders} href="/outsourcing?overdue=1" tone="danger" hasItems={outsourceData.overdueOutsourceTodoItems.length > 0}>
+              {outsourceData.overdueOutsourceTodoItems.map((item) => (
+                <Link
+                  key={item.id}
+                  href={`/outsourcing/${item.id}`}
+                  className="block rounded-md border border-red-100 bg-red-50/60 px-3 py-2 text-sm transition hover:border-red-200 hover:bg-red-50"
+                >
+                  <div className="font-medium text-[#172033]">{item.outsourceNo}</div>
+                  <div className="mt-1 text-[#667085]">
+                    {item.supplierName} · {outsourceTypeLabels[item.outsourceType]} · {formatDate(item.expectedReturnDate)}
+                  </div>
+                  <div className="mt-1 font-medium text-red-700">超期 {getOverdueDays(today, item.expectedReturnDate)} 天</div>
+                </Link>
+              ))}
+            </TodoCard>
+          ) : null}
 
-          <TodoCard
-            title="今日应回外发"
-            count={todayDueOutsourceOrders}
-            href={`/outsourcing?startDate=${todayDateValue}&endDate=${todayDateValue}`}
-            tone="warning"
-            hasItems={todayDueOutsourceTodoItems.length > 0}
-          >
-            {todayDueOutsourceTodoItems.map((item) => (
-              <Link
-                key={item.id}
-                href={`/outsourcing/${item.id}`}
-                className="block rounded-md border border-amber-100 bg-amber-50/60 px-3 py-2 text-sm transition hover:border-amber-200 hover:bg-amber-50"
-              >
-                <div className="font-medium text-[#172033]">{item.outsourceNo}</div>
-                <div className="mt-1 text-[#667085]">
-                  {item.supplierName} · {outsourceTypeLabels[item.outsourceType]} · 预计 {formatDate(item.expectedReturnDate)}
-                </div>
-              </Link>
-            ))}
-          </TodoCard>
+          {outsourceData !== null ? (
+            <TodoCard
+              title="今日应回外发"
+              count={outsourceData.todayDueOutsourceOrders}
+              href={`/outsourcing?startDate=${todayDateValue}&endDate=${todayDateValue}`}
+              tone="warning"
+              hasItems={outsourceData.todayDueOutsourceTodoItems.length > 0}
+            >
+              {outsourceData.todayDueOutsourceTodoItems.map((item) => (
+                <Link
+                  key={item.id}
+                  href={`/outsourcing/${item.id}`}
+                  className="block rounded-md border border-amber-100 bg-amber-50/60 px-3 py-2 text-sm transition hover:border-amber-200 hover:bg-amber-50"
+                >
+                  <div className="font-medium text-[#172033]">{item.outsourceNo}</div>
+                  <div className="mt-1 text-[#667085]">
+                    {item.supplierName} · {outsourceTypeLabels[item.outsourceType]} · 预计 {formatDate(item.expectedReturnDate)}
+                  </div>
+                </Link>
+              ))}
+            </TodoCard>
+          ) : null}
 
-          <TodoCard title="部分回厂未完成" count={partialReturnOutsourceOrders} href="/outsourcing?status=PARTIAL_RETURN" tone="orange" hasItems={partialReturnOutsourceTodoItems.length > 0}>
-            {partialReturnOutsourceTodoItems.map((item) => (
-              <Link
-                key={item.id}
-                href={`/outsourcing/${item.id}`}
-                className="block rounded-md border border-orange-100 bg-orange-50/60 px-3 py-2 text-sm transition hover:border-orange-200 hover:bg-orange-50"
-              >
-                <div className="font-medium text-[#172033]">{item.outsourceNo}</div>
-                <div className="mt-1 text-[#667085]">
-                  {item.supplierName} · {outsourceTypeLabels[item.outsourceType]} · 外发 {formatDate(item.outsourceDate)}
-                </div>
-                <div className="mt-1 text-[#667085]">明细 {item._count.items} 条</div>
-              </Link>
-            ))}
-          </TodoCard>
+          {partialReturnData !== null ? (
+            <TodoCard title="部分回厂未完成" count={partialReturnData.partialReturnOutsourceOrders} href="/outsourcing?status=PARTIAL_RETURN" tone="orange" hasItems={partialReturnData.partialReturnOutsourceTodoItems.length > 0}>
+              {partialReturnData.partialReturnOutsourceTodoItems.map((item) => (
+                <Link
+                  key={item.id}
+                  href={`/outsourcing/${item.id}`}
+                  className="block rounded-md border border-orange-100 bg-orange-50/60 px-3 py-2 text-sm transition hover:border-orange-200 hover:bg-orange-50"
+                >
+                  <div className="font-medium text-[#172033]">{item.outsourceNo}</div>
+                  <div className="mt-1 text-[#667085]">
+                    {item.supplierName} · {outsourceTypeLabels[item.outsourceType]} · 外发 {formatDate(item.outsourceDate)}
+                  </div>
+                  <div className="mt-1 text-[#667085]">明细 {item._count.items} 条</div>
+                </Link>
+              ))}
+            </TodoCard>
+          ) : null}
 
-          <TodoCard title="异常回厂" count={abnormalReturnItemCount} href="/returns?abnormal=1" tone="danger" hasItems={abnormalReturnTodoItems.length > 0}>
-            {abnormalReturnTodoItems.map((item) => (
+          {returnData !== null ? (
+            <TodoCard title="异常回厂" count={returnData.abnormalReturnItemCount} href="/returns?abnormal=1" tone="danger" hasItems={returnData.abnormalReturnTodoItems.length > 0}>
+            {returnData.abnormalReturnTodoItems.map((item) => (
               <Link
                 key={item.id}
                 href={`/returns/${item.outsourceReturnId}`}
@@ -865,10 +935,12 @@ export default async function DashboardPage() {
                 </div>
               </Link>
             ))}
-          </TodoCard>
+            </TodoCard>
+          ) : null}
 
-          <TodoCard title="未处理生产异常" count={openProductionAbnormalCount} href="/production/abnormal?status=open" tone="danger" hasItems={openProductionAbnormalItems.length > 0}>
-            {openProductionAbnormalItems.map((item) => (
+          {productionAbnormalData !== null ? (
+            <TodoCard title="未处理生产异常" count={productionAbnormalData.openProductionAbnormalCount} href="/production/abnormal?status=open" tone="danger" hasItems={productionAbnormalData.openProductionAbnormalItems.length > 0}>
+            {productionAbnormalData.openProductionAbnormalItems.map((item) => (
               <Link
                 key={item.id}
                 href="/production/abnormal?status=open"
@@ -886,7 +958,8 @@ export default async function DashboardPage() {
                 <div className="mt-1 font-medium text-red-700">{item.reason}</div>
               </Link>
             ))}
-          </TodoCard>
+            </TodoCard>
+          ) : null}
 
           <TodoCard title="待送货产品" count={deliveryTodoProductCount} href="/delivery/new" tone="info" hasItems={deliveryTodoProducts.length > 0}>
             {deliveryTodoProducts.map((product) => (

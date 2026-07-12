@@ -181,18 +181,18 @@ test("生产条件模块严格包含一项 Prisma 查询", () => {
   assert.equal((productionData.match(/prisma\./g) ?? []).length, 1);
 });
 test("齐套条件模块严格包含一项 Prisma 查询", () => {
-  const kittingData = sourceSlice(source.dashboard, "const kittingDataPromise", "const remainingDashboardDataPromise");
+  const kittingData = sourceSlice(source.dashboard, "const kittingDataPromise", "const outsourceDataPromise");
   assert.equal((kittingData.match(/prisma\./g) ?? []).length, 1);
 });
-test("剩余看板模块严格包含十八项 Prisma 查询", () => {
+test("剩余看板模块严格包含七项 Prisma 查询", () => {
   const remainingData = sourceSlice(source.dashboard, "const remainingDashboardDataPromise", "const [\n    orderData,");
-  assert.equal((remainingData.match(/prisma\./g) ?? []).length, 18);
+  assert.equal((remainingData.match(/prisma\./g) ?? []).length, 7);
 });
 test("三个条件模块无权限时都返回 null", () => {
   for (const [start, end] of [
     ["const orderDataPromise", "const productionDataPromise"],
     ["const productionDataPromise", "const kittingDataPromise"],
-    ["const kittingDataPromise", "const remainingDashboardDataPromise"]
+    ["const kittingDataPromise", "const outsourceDataPromise"]
   ]) {
     assert.match(sourceSlice(source.dashboard, start, end), /Promise\.resolve\(null\)/);
   }
@@ -203,8 +203,8 @@ test("剩余模块不重复订单、生产或齐套查询", () => {
     assert.doesNotMatch(remainingData, new RegExp(query.replaceAll(".", "\\.")));
   }
 });
-test("剩余十八项解构顺序与批准映射一致", () => {
-  assert.match(source.dashboard, /const \[\s+unreturnedOutsourceItems,\s+overdueOutsourceOrders,\s+todayDueOutsourceOrders,\s+partialReturnOutsourceOrders,\s+deliverableProducts,\s+partsWithoutDrawings,\s+thumbnailFailedDrawings,\s+overdueOutsourceTodoItems,\s+todayDueOutsourceTodoItems,\s+partialReturnOutsourceTodoItems,\s+abnormalReturnItemCount,\s+abnormalReturnTodoItems,\s+openProductionAbnormalCount,\s+openProductionAbnormalItems,\s+deliveryTodoProductCount,\s+deliveryTodoProducts,\s+missingDrawingPartCount,\s+missingDrawingParts\s+\] = remainingDashboardData/);
+test("剩余七项解构顺序与批准映射一致", () => {
+  assert.match(source.dashboard, /const \[\s+deliverableProducts,\s+partsWithoutDrawings,\s+thumbnailFailedDrawings,\s+deliveryTodoProductCount,\s+deliveryTodoProducts,\s+missingDrawingPartCount,\s+missingDrawingParts\s+\] = remainingDashboardData/);
 });
 test("订单三张统计卡读取 orderData 字段", () => {
   for (const field of ["todayNewOrders", "activeOrders", "completedOrders"]) assert.match(source.dashboard, new RegExp(`value: orderData\\.${field}`));
@@ -225,6 +225,62 @@ test("齐套派生计算受 kittingData null 边界控制", () => {
 test("统计分组过滤没有卡片的权限分组", () => assert.match(source.dashboard, /\]\.filter\(\(group\) => group\.cards\.length > 0\)/));
 test("订单无权限不使用可选链伪装零数据", () => assert.doesNotMatch(source.dashboard, /orderData\?\./));
 test("齐套无权限不使用可选链伪装空数组", () => assert.doesNotMatch(source.dashboard, /kittingData\?\.kittingProducts \?\? \[\]/));
+test("首页外发查看变量使用 outsource.view", () => assert.match(source.dashboard, /const canViewOutsource = hasPermission\(user\.role, "outsource\.view", \[\]\)/));
+test("首页回厂查看变量使用 return.view", () => assert.match(source.dashboard, /const canViewReturns = hasPermission\(user\.role, "return\.view", \[\]\)/));
+test("首页生产异常查看变量使用 production.abnormal.view", () => assert.match(source.dashboard, /const canViewProductionAbnormal = hasPermission\(user\.role, "production\.abnormal\.view", \[\]\)/));
+test("部分回厂查看变量同时依赖外发和回厂权限", () => assert.match(source.dashboard, /const canViewPartialReturns = canViewOutsource && canViewReturns/));
+test("普通外发条件模块严格包含五项 Prisma 查询", () => {
+  const outsourceData = sourceSlice(source.dashboard, "const outsourceDataPromise", "const partialReturnDataPromise");
+  assert.equal((outsourceData.match(/prisma\./g) ?? []).length, 5);
+});
+test("部分回厂条件模块严格包含两项 Prisma 查询", () => {
+  const partialReturnData = sourceSlice(source.dashboard, "const partialReturnDataPromise", "const returnDataPromise");
+  assert.equal((partialReturnData.match(/prisma\./g) ?? []).length, 2);
+});
+test("异常回厂条件模块严格包含两项 Prisma 查询", () => {
+  const returnData = sourceSlice(source.dashboard, "const returnDataPromise", "const productionAbnormalDataPromise");
+  assert.equal((returnData.match(/prisma\./g) ?? []).length, 2);
+});
+test("生产异常条件模块严格包含两项 Prisma 查询", () => {
+  const productionAbnormalData = sourceSlice(source.dashboard, "const productionAbnormalDataPromise", "const remainingDashboardDataPromise");
+  assert.equal((productionAbnormalData.match(/prisma\./g) ?? []).length, 2);
+});
+test("四个新条件模块无权限时都返回 null", () => {
+  for (const [start, end] of [
+    ["const outsourceDataPromise", "const partialReturnDataPromise"],
+    ["const partialReturnDataPromise", "const returnDataPromise"],
+    ["const returnDataPromise", "const productionAbnormalDataPromise"],
+    ["const productionAbnormalDataPromise", "const remainingDashboardDataPromise"]
+  ]) {
+    assert.match(sourceSlice(source.dashboard, start, end), /Promise\.resolve\(null\)/);
+  }
+});
+test("剩余模块没有保留本阶段拆出的十一项数据", () => {
+  const remainingData = sourceSlice(source.dashboard, "const remainingDashboardDataPromise", "const [\n    orderData,");
+  for (const name of ["outsourceOrder", "outsourceReturnItem", "productPartAbnormal"]) assert.doesNotMatch(remainingData, new RegExp(name));
+});
+test("顶层等待包含全部八个模块 Promise", () => {
+  assert.match(source.dashboard, /orderDataPromise,\s+productionDataPromise,\s+kittingDataPromise,\s+outsourceDataPromise,\s+partialReturnDataPromise,\s+returnDataPromise,\s+productionAbnormalDataPromise,\s+remainingDashboardDataPromise/);
+});
+test("外发派生数量受 outsourceData null 边界控制", () => {
+  assert.match(source.dashboard, /const outsourceSummary = outsourceData === null\s+\? null/);
+  assert.match(source.dashboard, /outsourceData\.unreturnedOutsourceItems\.length/);
+});
+test("三张普通外发统计卡受 outsourceData null 边界控制", () => {
+  assert.match(source.dashboard, /\.\.\.\(outsourceData !== null && outsourceSummary !== null/);
+  for (const title of ["外发未回", "外发超期未回", "今日应回外发"]) assert.match(source.dashboard, new RegExp(`title: "${title}"`));
+});
+test("部分回厂统计卡受 partialReturnData null 边界控制", () => assert.match(source.dashboard, /\.\.\.\(partialReturnData !== null\s+\? \[\{\s+title: "部分回厂"/));
+test("超期未回外发待办受 outsourceData null 边界控制", () => assert.match(source.dashboard, /\{outsourceData !== null \? \(\s+<TodoCard title="超期未回外发" count=\{outsourceData\.overdueOutsourceOrders\}/));
+test("今日应回外发待办受 outsourceData null 边界控制", () => assert.match(source.dashboard, /\{outsourceData !== null \? \(\s+<TodoCard\s+title="今日应回外发"\s+count=\{outsourceData\.todayDueOutsourceOrders\}/));
+test("部分回厂待办受 partialReturnData null 边界控制", () => assert.match(source.dashboard, /\{partialReturnData !== null \? \(\s+<TodoCard title="部分回厂未完成" count=\{partialReturnData\.partialReturnOutsourceOrders\}/));
+test("异常回厂待办受 returnData null 边界控制", () => assert.match(source.dashboard, /\{returnData !== null \? \(\s+<TodoCard title="异常回厂" count=\{returnData\.abnormalReturnItemCount\}/));
+test("生产异常待办受 productionAbnormalData null 边界控制", () => assert.match(source.dashboard, /\{productionAbnormalData !== null \? \(\s+<TodoCard title="未处理生产异常" count=\{productionAbnormalData\.openProductionAbnormalCount\}/));
+test("外发无权限不使用可选链伪装零数据", () => assert.doesNotMatch(source.dashboard, /outsourceData\?\./));
+test("部分回厂无权限不使用可选链伪装空数组", () => assert.doesNotMatch(source.dashboard, /partialReturnData\?\./));
+test("异常回厂无权限不使用可选链伪装零数据", () => assert.doesNotMatch(source.dashboard, /returnData\?\./));
+test("生产异常无权限不使用可选链伪装空数组", () => assert.doesNotMatch(source.dashboard, /productionAbnormalData\?\./));
+test("本阶段没有提前增加送货或图纸权限变量", () => assert.doesNotMatch(source.dashboard, /canView(?:Delivery|Drawings)/));
 test("业务 API 未引用新权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");
   const { readdir } = await import("node:fs/promises");
