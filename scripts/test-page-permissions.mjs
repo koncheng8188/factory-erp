@@ -184,10 +184,7 @@ test("齐套条件模块严格包含一项 Prisma 查询", () => {
   const kittingData = sourceSlice(source.dashboard, "const kittingDataPromise", "const outsourceDataPromise");
   assert.equal((kittingData.match(/prisma\./g) ?? []).length, 1);
 });
-test("剩余看板模块严格包含七项 Prisma 查询", () => {
-  const remainingData = sourceSlice(source.dashboard, "const remainingDashboardDataPromise", "const [\n    orderData,");
-  assert.equal((remainingData.match(/prisma\./g) ?? []).length, 7);
-});
+test("剩余看板查询模块已删除", () => assert.doesNotMatch(source.dashboard, /remainingDashboardData(?:Promise)?/));
 test("三个条件模块无权限时都返回 null", () => {
   for (const [start, end] of [
     ["const orderDataPromise", "const productionDataPromise"],
@@ -197,14 +194,9 @@ test("三个条件模块无权限时都返回 null", () => {
     assert.match(sourceSlice(source.dashboard, start, end), /Promise\.resolve\(null\)/);
   }
 });
-test("剩余模块不重复订单、生产或齐套查询", () => {
-  const remainingData = sourceSlice(source.dashboard, "const remainingDashboardDataPromise", "const [\n    orderData,");
-  for (const query of ["prisma.order.groupBy", "prisma.order.findMany", "productionProductStatuses", "totalQuantity", "returnedQuantity"]) {
-    assert.doesNotMatch(remainingData, new RegExp(query.replaceAll(".", "\\.")));
-  }
-});
-test("剩余七项解构顺序与批准映射一致", () => {
-  assert.match(source.dashboard, /const \[\s+deliverableProducts,\s+partsWithoutDrawings,\s+thumbnailFailedDrawings,\s+deliveryTodoProductCount,\s+deliveryTodoProducts,\s+missingDrawingPartCount,\s+missingDrawingParts\s+\] = remainingDashboardData/);
+test("首页没有保留七项位置解构兼容代码", () => assert.doesNotMatch(source.dashboard, /\] = remainingDashboardData/));
+test("原最后七项均已移入具名权限模块", () => {
+  for (const name of ["deliverySummaryDataPromise", "deliveryDetailDataPromise", "drawingSummaryDataPromise", "noDrawingDetailDataPromise"]) assert.match(source.dashboard, new RegExp(`const ${name}`));
 });
 test("订单三张统计卡读取 orderData 字段", () => {
   for (const field of ["todayNewOrders", "activeOrders", "completedOrders"]) assert.match(source.dashboard, new RegExp(`value: orderData\\.${field}`));
@@ -242,7 +234,7 @@ test("异常回厂条件模块严格包含两项 Prisma 查询", () => {
   assert.equal((returnData.match(/prisma\./g) ?? []).length, 2);
 });
 test("生产异常条件模块严格包含两项 Prisma 查询", () => {
-  const productionAbnormalData = sourceSlice(source.dashboard, "const productionAbnormalDataPromise", "const remainingDashboardDataPromise");
+  const productionAbnormalData = sourceSlice(source.dashboard, "const productionAbnormalDataPromise", "const deliverySummaryDataPromise");
   assert.equal((productionAbnormalData.match(/prisma\./g) ?? []).length, 2);
 });
 test("四个新条件模块无权限时都返回 null", () => {
@@ -250,17 +242,13 @@ test("四个新条件模块无权限时都返回 null", () => {
     ["const outsourceDataPromise", "const partialReturnDataPromise"],
     ["const partialReturnDataPromise", "const returnDataPromise"],
     ["const returnDataPromise", "const productionAbnormalDataPromise"],
-    ["const productionAbnormalDataPromise", "const remainingDashboardDataPromise"]
+    ["const productionAbnormalDataPromise", "const deliverySummaryDataPromise"]
   ]) {
     assert.match(sourceSlice(source.dashboard, start, end), /Promise\.resolve\(null\)/);
   }
 });
-test("剩余模块没有保留本阶段拆出的十一项数据", () => {
-  const remainingData = sourceSlice(source.dashboard, "const remainingDashboardDataPromise", "const [\n    orderData,");
-  for (const name of ["outsourceOrder", "outsourceReturnItem", "productPartAbnormal"]) assert.doesNotMatch(remainingData, new RegExp(name));
-});
-test("顶层等待包含全部八个模块 Promise", () => {
-  assert.match(source.dashboard, /orderDataPromise,\s+productionDataPromise,\s+kittingDataPromise,\s+outsourceDataPromise,\s+partialReturnDataPromise,\s+returnDataPromise,\s+productionAbnormalDataPromise,\s+remainingDashboardDataPromise/);
+test("顶层等待包含全部十一模块 Promise", () => {
+  assert.match(source.dashboard, /orderDataPromise,\s+productionDataPromise,\s+kittingDataPromise,\s+outsourceDataPromise,\s+partialReturnDataPromise,\s+returnDataPromise,\s+productionAbnormalDataPromise,\s+deliverySummaryDataPromise,\s+deliveryDetailDataPromise,\s+drawingSummaryDataPromise,\s+noDrawingDetailDataPromise/);
 });
 test("外发派生数量受 outsourceData null 边界控制", () => {
   assert.match(source.dashboard, /const outsourceSummary = outsourceData === null\s+\? null/);
@@ -280,7 +268,76 @@ test("外发无权限不使用可选链伪装零数据", () => assert.doesNotMat
 test("部分回厂无权限不使用可选链伪装空数组", () => assert.doesNotMatch(source.dashboard, /partialReturnData\?\./));
 test("异常回厂无权限不使用可选链伪装零数据", () => assert.doesNotMatch(source.dashboard, /returnData\?\./));
 test("生产异常无权限不使用可选链伪装空数组", () => assert.doesNotMatch(source.dashboard, /productionAbnormalData\?\./));
-test("本阶段没有提前增加送货或图纸权限变量", () => assert.doesNotMatch(source.dashboard, /canView(?:Delivery|Drawings)/));
+test("送货汇总查看变量使用 delivery.view", () => assert.match(source.dashboard, /const canViewDeliverySummary = hasPermission\(user\.role, "delivery\.view", \[\]\)/));
+test("送货明细查看变量同时要求送货、产品和订单查看权限", () => assert.match(source.dashboard, /const canViewDeliveryDetails = canViewDeliverySummary\s+&& hasPermission\(user\.role, "product\.view", \[\]\)\s+&& hasPermission\(user\.role, "order\.view", \[\]\)/));
+test("待送货入口变量使用 delivery.create", () => assert.match(source.dashboard, /const canCreateDelivery = hasPermission\(user\.role, "delivery\.create", \[\]\)/));
+test("图纸汇总查看变量使用 drawing.view", () => assert.match(source.dashboard, /const canViewDrawingSummary = hasPermission\(user\.role, "drawing\.view", \[\]\)/));
+test("缺图明细查看变量同时要求图纸、部件和订单查看权限", () => assert.match(source.dashboard, /const canViewMissingDrawingDetails = canViewDrawingSummary\s+&& hasPermission\(user\.role, "part\.view", \[\]\)\s+&& hasPermission\(user\.role, "order\.view", \[\]\)/));
+test("送货汇总条件模块严格包含一项 Prisma 查询", () => {
+  const deliverySummary = sourceSlice(source.dashboard, "const deliverySummaryDataPromise", "const deliveryDetailDataPromise");
+  assert.equal((deliverySummary.match(/prisma\./g) ?? []).length, 1);
+});
+test("送货明细条件模块严格包含两项 Prisma 查询", () => {
+  const deliveryDetail = sourceSlice(source.dashboard, "const deliveryDetailDataPromise", "const drawingSummaryDataPromise");
+  assert.equal((deliveryDetail.match(/prisma\./g) ?? []).length, 2);
+});
+test("图纸汇总条件模块严格包含两项 Prisma 查询", () => {
+  const drawingSummary = sourceSlice(source.dashboard, "const drawingSummaryDataPromise", "const noDrawingDetailDataPromise");
+  assert.equal((drawingSummary.match(/prisma\./g) ?? []).length, 2);
+});
+test("缺图明细条件模块严格包含两项 Prisma 查询", () => {
+  const noDrawingDetail = sourceSlice(source.dashboard, "const noDrawingDetailDataPromise", "const [\n    orderData,");
+  assert.equal((noDrawingDetail.match(/prisma\./g) ?? []).length, 2);
+});
+test("四个送货图纸模块无权限时都返回 null", () => {
+  for (const [start, end] of [
+    ["const deliverySummaryDataPromise", "const deliveryDetailDataPromise"],
+    ["const deliveryDetailDataPromise", "const drawingSummaryDataPromise"],
+    ["const drawingSummaryDataPromise", "const noDrawingDetailDataPromise"],
+    ["const noDrawingDetailDataPromise", "const [\n    orderData,"]
+  ]) {
+    assert.match(sourceSlice(source.dashboard, start, end), /Promise\.resolve\(null\)/);
+  }
+});
+test("deliverableProducts 仅存在于送货汇总模块查询中", () => {
+  const deliverySummary = sourceSlice(source.dashboard, "const deliverySummaryDataPromise", "const deliveryDetailDataPromise");
+  assert.match(deliverySummary, /deliverableProducts/);
+  assert.doesNotMatch(sourceSlice(source.dashboard, "const deliveryDetailDataPromise", "const drawingSummaryDataPromise"), /deliverableProducts/);
+});
+test("送货待办两项仅存在于送货明细模块中", () => {
+  const deliveryDetail = sourceSlice(source.dashboard, "const deliveryDetailDataPromise", "const drawingSummaryDataPromise");
+  for (const name of ["deliveryTodoProductCount", "deliveryTodoProducts"]) assert.match(deliveryDetail, new RegExp(name));
+});
+test("图纸汇总两项仅存在于图纸汇总模块中", () => {
+  const drawingSummary = sourceSlice(source.dashboard, "const drawingSummaryDataPromise", "const noDrawingDetailDataPromise");
+  for (const name of ["partsWithoutDrawings", "thumbnailFailedDrawings"]) assert.match(drawingSummary, new RegExp(name));
+});
+test("缺图明细两项仅存在于缺图明细模块中", () => {
+  const noDrawingDetail = sourceSlice(source.dashboard, "const noDrawingDetailDataPromise", "const [\n    orderData,");
+  for (const name of ["missingDrawingPartCount", "missingDrawingParts"]) assert.match(noDrawingDetail, new RegExp(name));
+});
+test("送货汇总派生计算受 deliverySummaryData null 边界控制", () => {
+  assert.match(source.dashboard, /const deliverySummary = deliverySummaryData === null\s+\? null/);
+  assert.match(source.dashboard, /deliverySummaryData\.deliverableProducts\.filter/);
+});
+test("待送货统计卡受 deliverySummary null 边界控制", () => assert.match(source.dashboard, /\.\.\.\(deliverySummary !== null\s+\? \[\{\s+title: "待送货产品"/));
+test("两张图纸统计卡受 drawingSummaryData null 边界控制", () => {
+  assert.match(source.dashboard, /\.\.\.\(drawingSummaryData !== null/);
+  for (const title of ["无图纸部件", "缩略图生成失败"]) assert.match(source.dashboard, new RegExp(`title: "${title}"`));
+});
+test("待送货待办受 deliveryDetailData null 边界控制", () => assert.match(source.dashboard, /\{deliveryDetailData !== null \? \(\s+<TodoCard title="待送货产品" count=\{deliveryDetailData\.deliveryTodoProductCount\}/));
+test("缺图待办受 noDrawingDetailData null 边界控制", () => assert.match(source.dashboard, /\{noDrawingDetailData !== null \? \(\s+<TodoCard title="无图纸部件" count=\{noDrawingDetailData\.missingDrawingPartCount\}/));
+test("待送货待办链接按 delivery.create 切换", () => assert.match(source.dashboard, /href=\{canCreateDelivery \? "\/delivery\/new" : "\/delivery"\}/));
+test("送货与图纸无权限不使用可选链伪装数据", () => assert.doesNotMatch(source.dashboard, /(?:deliverySummaryData|deliveryDetailData|drawingSummaryData|noDrawingDetailData)\?\./));
+test("delivery.create 不参与送货汇总查询条件", () => {
+  const deliverySummary = sourceSlice(source.dashboard, "const deliverySummaryDataPromise", "const deliveryDetailDataPromise");
+  assert.doesNotMatch(deliverySummary, /canCreateDelivery/);
+});
+test("delivery.create 不参与送货明细查询条件", () => {
+  const deliveryDetail = sourceSlice(source.dashboard, "const deliveryDetailDataPromise", "const drawingSummaryDataPromise");
+  assert.doesNotMatch(deliveryDetail, /canCreateDelivery/);
+});
+test("delivery.create 仅在待送货待办链接处使用", () => assert.equal(occurrenceCount(source.dashboard, "canCreateDelivery"), 2));
 test("业务 API 未引用新权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");
   const { readdir } = await import("node:fs/promises");

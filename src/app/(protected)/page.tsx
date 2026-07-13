@@ -183,6 +183,15 @@ export default async function DashboardPage() {
   const canViewReturns = hasPermission(user.role, "return.view", []);
   const canViewProductionAbnormal = hasPermission(user.role, "production.abnormal.view", []);
   const canViewPartialReturns = canViewOutsource && canViewReturns;
+  const canViewDeliverySummary = hasPermission(user.role, "delivery.view", []);
+  const canViewDeliveryDetails = canViewDeliverySummary
+    && hasPermission(user.role, "product.view", [])
+    && hasPermission(user.role, "order.view", []);
+  const canCreateDelivery = hasPermission(user.role, "delivery.create", []);
+  const canViewDrawingSummary = hasPermission(user.role, "drawing.view", []);
+  const canViewMissingDrawingDetails = canViewDrawingSummary
+    && hasPermission(user.role, "part.view", [])
+    && hasPermission(user.role, "order.view", []);
   const today = startOfToday();
   const tomorrow = startOfTomorrow(today);
 
@@ -512,122 +521,155 @@ export default async function DashboardPage() {
       }))
     : Promise.resolve(null);
 
-  const remainingDashboardDataPromise = Promise.all([
-    prisma.product.findMany({
-      where: {
-        status: {
-          in: [...deliverableProductStatuses]
-        }
-      },
-      select: {
-        id: true,
-        quantity: true,
-        deliveryOrderItems: {
-          select: {
-            deliveryQuantity: true
-          }
-        }
-      }
-    }),
-    prisma.productPart.count({
-      where: {
-        drawings: {
-          none: {}
-        }
-      }
-    }),
-    prisma.partDrawing.count({
-      where: {
-        uploadStatus: "THUMBNAIL_FAILED"
-      }
-    }),
-    prisma.product.count({
-      where: {
-        status: {
-          in: [...deliverableProductStatuses]
-        }
-      }
-    }),
-    prisma.product.findMany({
-      where: {
-        status: {
-          in: [...deliverableProductStatuses]
-        }
-      },
-      orderBy: {
-        updatedAt: "desc"
-      },
-      take: 5,
-      select: {
-        id: true,
-        orderId: true,
-        productName: true,
-        quantity: true,
-        status: true,
-        order: {
-          select: {
-            orderNo: true,
-            customerName: true
-          }
-        }
-      }
-    }),
-    prisma.productPart.count({
-      where: {
-        drawings: {
-          none: {}
-        },
-        order: {
+  const deliverySummaryDataPromise = canViewDeliverySummary
+    ? prisma.product.findMany({
+        where: {
           status: {
-            not: "COMPLETED"
+            in: [...deliverableProductStatuses]
           }
         },
-        product: {
-          status: {
-            not: "COMPLETED"
+        select: {
+          id: true,
+          quantity: true,
+          deliveryOrderItems: {
+            select: {
+              deliveryQuantity: true
+            }
           }
         }
-      }
-    }),
-    prisma.productPart.findMany({
-      where: {
-        drawings: {
-          none: {}
-        },
-        order: {
-          status: {
-            not: "COMPLETED"
+      }).then((deliverableProducts) => ({ deliverableProducts }))
+    : Promise.resolve(null);
+
+  const deliveryDetailDataPromise = canViewDeliveryDetails
+    ? Promise.all([
+        prisma.product.count({
+          where: {
+            status: {
+              in: [...deliverableProductStatuses]
+            }
           }
-        },
-        product: {
-          status: {
-            not: "COMPLETED"
-          }
-        }
-      },
-      orderBy: {
-        updatedAt: "desc"
-      },
-      take: 5,
-      select: {
-        id: true,
-        orderId: true,
-        partName: true,
-        partCode: true,
-        order: {
+        }),
+        prisma.product.findMany({
+          where: {
+            status: {
+              in: [...deliverableProductStatuses]
+            }
+          },
+          orderBy: {
+            updatedAt: "desc"
+          },
+          take: 5,
           select: {
-            orderNo: true,
-            customerName: true
+            id: true,
+            orderId: true,
+            productName: true,
+            quantity: true,
+            status: true,
+            order: {
+              select: {
+                orderNo: true,
+                customerName: true
+              }
+            }
           }
-        },
-        product: {
+        })
+      ]).then(([
+        deliveryTodoProductCount,
+        deliveryTodoProducts
+      ]) => ({
+        deliveryTodoProductCount,
+        deliveryTodoProducts
+      }))
+    : Promise.resolve(null);
+
+  const drawingSummaryDataPromise = canViewDrawingSummary
+    ? Promise.all([
+        prisma.productPart.count({
+          where: {
+            drawings: {
+              none: {}
+            }
+          }
+        }),
+        prisma.partDrawing.count({
+          where: {
+            uploadStatus: "THUMBNAIL_FAILED"
+          }
+        })
+      ]).then(([
+        partsWithoutDrawings,
+        thumbnailFailedDrawings
+      ]) => ({
+        partsWithoutDrawings,
+        thumbnailFailedDrawings
+      }))
+    : Promise.resolve(null);
+
+  const noDrawingDetailDataPromise = canViewMissingDrawingDetails
+    ? Promise.all([
+        prisma.productPart.count({
+          where: {
+            drawings: {
+              none: {}
+            },
+            order: {
+              status: {
+                not: "COMPLETED"
+              }
+            },
+            product: {
+              status: {
+                not: "COMPLETED"
+              }
+            }
+          }
+        }),
+        prisma.productPart.findMany({
+          where: {
+            drawings: {
+              none: {}
+            },
+            order: {
+              status: {
+                not: "COMPLETED"
+              }
+            },
+            product: {
+              status: {
+                not: "COMPLETED"
+              }
+            }
+          },
+          orderBy: {
+            updatedAt: "desc"
+          },
+          take: 5,
           select: {
-            productName: true
+            id: true,
+            orderId: true,
+            partName: true,
+            partCode: true,
+            order: {
+              select: {
+                orderNo: true,
+                customerName: true
+              }
+            },
+            product: {
+              select: {
+                productName: true
+              }
+            }
           }
-        }
-      }
-    }),
-  ]);
+        })
+      ]).then(([
+        missingDrawingPartCount,
+        missingDrawingParts
+      ]) => ({
+        missingDrawingPartCount,
+        missingDrawingParts
+      }))
+    : Promise.resolve(null);
 
   const [
     orderData,
@@ -637,7 +679,10 @@ export default async function DashboardPage() {
     partialReturnData,
     returnData,
     productionAbnormalData,
-    remainingDashboardData
+    deliverySummaryData,
+    deliveryDetailData,
+    drawingSummaryData,
+    noDrawingDetailData
   ] = await Promise.all([
     orderDataPromise,
     productionDataPromise,
@@ -646,18 +691,11 @@ export default async function DashboardPage() {
     partialReturnDataPromise,
     returnDataPromise,
     productionAbnormalDataPromise,
-    remainingDashboardDataPromise
+    deliverySummaryDataPromise,
+    deliveryDetailDataPromise,
+    drawingSummaryDataPromise,
+    noDrawingDetailDataPromise
   ]);
-
-  const [
-    deliverableProducts,
-    partsWithoutDrawings,
-    thumbnailFailedDrawings,
-    deliveryTodoProductCount,
-    deliveryTodoProducts,
-    missingDrawingPartCount,
-    missingDrawingParts
-  ] = remainingDashboardData;
 
   const outsourceSummary = outsourceData === null
     ? null
@@ -684,17 +722,25 @@ export default async function DashboardPage() {
           missingPartQuantity
         };
       })();
-  const pendingDeliveryProducts = deliverableProducts.filter((product) => {
-    const deliveredQuantity = sumNumbers(product.deliveryOrderItems.map((item) => item.deliveryQuantity));
-    return Math.max(product.quantity - deliveredQuantity, 0) > 0;
-  });
-  const pendingDeliveryProductCount = pendingDeliveryProducts.length;
-  const pendingDeliveryQuantity = sumNumbers(
-    deliverableProducts.map((product) => {
-      const deliveredQuantity = sumNumbers(product.deliveryOrderItems.map((item) => item.deliveryQuantity));
-      return Math.max(product.quantity - deliveredQuantity, 0);
-    })
-  );
+  const deliverySummary = deliverySummaryData === null
+    ? null
+    : (() => {
+        const pendingDeliveryProducts = deliverySummaryData.deliverableProducts.filter((product) => {
+          const deliveredQuantity = sumNumbers(product.deliveryOrderItems.map((item) => item.deliveryQuantity));
+          return Math.max(product.quantity - deliveredQuantity, 0) > 0;
+        });
+        const pendingDeliveryQuantity = sumNumbers(
+          deliverySummaryData.deliverableProducts.map((product) => {
+            const deliveredQuantity = sumNumbers(product.deliveryOrderItems.map((item) => item.deliveryQuantity));
+            return Math.max(product.quantity - deliveredQuantity, 0);
+          })
+        );
+
+        return {
+          pendingDeliveryProductCount: pendingDeliveryProducts.length,
+          pendingDeliveryQuantity
+        };
+      })();
   const orderStatusCountMap = orderData === null
     ? null
     : new Map(orderData.orderStatusGroups.map((group) => [group.status, group._count.status]));
@@ -746,19 +792,23 @@ export default async function DashboardPage() {
               tone: "warning" as const
             }]
           : []),
-        {
-          title: "无图纸部件",
-          value: partsWithoutDrawings,
-          description: "没有绑定图纸的部件",
-          href: "/drawings"
-        },
-        {
-          title: "缩略图生成失败",
-          value: thumbnailFailedDrawings,
-          description: "需要重新处理缩略图的图纸",
-          href: "/drawings",
-          tone: "danger" as const
-        }
+        ...(drawingSummaryData !== null
+          ? [
+              {
+                title: "无图纸部件",
+                value: drawingSummaryData.partsWithoutDrawings,
+                description: "没有绑定图纸的部件",
+                href: "/drawings"
+              },
+              {
+                title: "缩略图生成失败",
+                value: drawingSummaryData.thumbnailFailedDrawings,
+                description: "需要重新处理缩略图的图纸",
+                href: "/drawings",
+                tone: "danger" as const
+              }
+            ]
+          : [])
       ]
     },
     {
@@ -801,13 +851,15 @@ export default async function DashboardPage() {
     {
       title: "送货提醒",
       cards: [
-        {
-          title: "待送货产品",
-          value: pendingDeliveryProductCount,
-          description: `未送总数量 ${pendingDeliveryQuantity}`,
-          href: "/delivery",
-          tone: "warning" as const
-        }
+        ...(deliverySummary !== null
+          ? [{
+              title: "待送货产品",
+              value: deliverySummary.pendingDeliveryProductCount,
+              description: `未送总数量 ${deliverySummary.pendingDeliveryQuantity}`,
+              href: "/delivery",
+              tone: "warning" as const
+            }]
+          : [])
       ]
     }
   ].filter((group) => group.cards.length > 0);
@@ -961,39 +1013,43 @@ export default async function DashboardPage() {
             </TodoCard>
           ) : null}
 
-          <TodoCard title="待送货产品" count={deliveryTodoProductCount} href="/delivery/new" tone="info" hasItems={deliveryTodoProducts.length > 0}>
-            {deliveryTodoProducts.map((product) => (
-              <Link
-                key={product.id}
-                href={`/orders/${product.orderId}`}
-                className="block rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-sm transition hover:border-blue-200 hover:bg-blue-50"
-              >
-                <div className="font-medium text-[#172033]">{product.order.orderNo}</div>
-                <div className="mt-1 text-[#667085]">
-                  {product.order.customerName} · {product.productName} · {product.quantity} 件
-                </div>
-                <div className="mt-1 text-blue-700">{getProductStatusLabel(product.status)}</div>
-              </Link>
-            ))}
-          </TodoCard>
+          {deliveryDetailData !== null ? (
+            <TodoCard title="待送货产品" count={deliveryDetailData.deliveryTodoProductCount} href={canCreateDelivery ? "/delivery/new" : "/delivery"} tone="info" hasItems={deliveryDetailData.deliveryTodoProducts.length > 0}>
+              {deliveryDetailData.deliveryTodoProducts.map((product) => (
+                <Link
+                  key={product.id}
+                  href={`/orders/${product.orderId}`}
+                  className="block rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-sm transition hover:border-blue-200 hover:bg-blue-50"
+                >
+                  <div className="font-medium text-[#172033]">{product.order.orderNo}</div>
+                  <div className="mt-1 text-[#667085]">
+                    {product.order.customerName} · {product.productName} · {product.quantity} 件
+                  </div>
+                  <div className="mt-1 text-blue-700">{getProductStatusLabel(product.status)}</div>
+                </Link>
+              ))}
+            </TodoCard>
+          ) : null}
 
-          <TodoCard title="无图纸部件" count={missingDrawingPartCount} href="/drawings" tone="muted" hasItems={missingDrawingParts.length > 0}>
-            {missingDrawingParts.map((part) => (
-              <Link
-                key={part.id}
-                href={`/orders/${part.orderId}`}
-                className="block rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm transition hover:border-slate-300 hover:bg-white"
-              >
-                <div className="font-medium text-[#172033]">{part.order.orderNo}</div>
-                <div className="mt-1 text-[#667085]">
-                  {part.order.customerName} · {part.product.productName}
-                </div>
-                <div className="mt-1 text-[#667085]">
-                  {part.partName} · 编号 {part.partCode || "-"}
-                </div>
-              </Link>
-            ))}
-          </TodoCard>
+          {noDrawingDetailData !== null ? (
+            <TodoCard title="无图纸部件" count={noDrawingDetailData.missingDrawingPartCount} href="/drawings" tone="muted" hasItems={noDrawingDetailData.missingDrawingParts.length > 0}>
+              {noDrawingDetailData.missingDrawingParts.map((part) => (
+                <Link
+                  key={part.id}
+                  href={`/orders/${part.orderId}`}
+                  className="block rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm transition hover:border-slate-300 hover:bg-white"
+                >
+                  <div className="font-medium text-[#172033]">{part.order.orderNo}</div>
+                  <div className="mt-1 text-[#667085]">
+                    {part.order.customerName} · {part.product.productName}
+                  </div>
+                  <div className="mt-1 text-[#667085]">
+                    {part.partName} · 编号 {part.partCode || "-"}
+                  </div>
+                </Link>
+              ))}
+            </TodoCard>
+          ) : null}
 
           {orderData !== null ? (
             <TodoCard title="待处理订单" count={orderData.pendingOrderCount} href="/orders?status=PENDING" hasItems={orderData.pendingOrders.length > 0}>
