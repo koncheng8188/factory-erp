@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { requirePageAllPermissions, requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { formatDisplayDate } from "@/lib/delivery";
 import { PrintActions } from "./print-actions";
@@ -15,6 +16,9 @@ function displayValue(value: string | number | null | undefined) {
 }
 
 export default async function DeliveryPrintPage({ params }: DeliveryPrintPageProps) {
+  await requirePagePermission("delivery.view");
+  await requirePageAllPermissions(["delivery.print"]);
+
   const { id } = await params;
   const deliveryOrder = await prisma.deliveryOrder.findFirst({
     where: {

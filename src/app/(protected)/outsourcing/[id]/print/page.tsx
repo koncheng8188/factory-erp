@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { requirePageAllPermissions, requirePagePermission } from "@/lib/auth/authorization";
 import { formatDisplayDate, outsourceTypeLabels, type OutsourceTypeValue } from "@/lib/outsource";
 import { getOutsourceStatusLabel } from "@/lib/outsource-status";
 import { prisma } from "@/lib/prisma";
@@ -42,6 +43,9 @@ function DrawingPreview({ thumbnailUrl, originalUrl }: { thumbnailUrl: string | 
 }
 
 export default async function OutsourcePrintPage({ params }: OutsourcePrintPageProps) {
+  await requirePagePermission("outsource.view");
+  await requirePageAllPermissions(["outsource.print", "drawing.view"]);
+
   const { id } = await params;
   const outsourceOrder = await prisma.outsourceOrder.findFirst({
     where: {
