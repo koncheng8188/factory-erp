@@ -71,7 +71,9 @@ const source = {
   kitting: await readSource("src", "app", "api", "kitting", "[productId]", "route.ts"),
   productParts: await readSource("src", "app", "api", "products", "[id]", "parts", "route.ts"),
   backupList: await readSource("src", "app", "api", "system", "backup", "list", "route.ts"),
+  backupCreate: await readSource("src", "app", "api", "system", "backup", "route.ts"),
   importTemplate: await readSource("src", "app", "api", "imports", "excel", "template", "route.ts"),
+  simpleTemplate: await readSource("src", "app", "api", "imports", "excel", "simple-template", "route.ts"),
   orderImportTemplate: await readSource("src", "app", "api", "orders", "[id]", "import-products", "template", "route.ts"),
   self: await readSource("scripts", "test-api-permissions.mjs")
 };
@@ -92,6 +94,10 @@ const kittingGet = functionBody(source.kitting, "GET");
 const kittingPost = functionBody(source.kitting, "POST");
 const productPartsGet = functionBody(source.productParts, "GET");
 const productPartsPost = functionBody(source.productParts, "POST");
+const backupListGet = functionBody(source.backupList, "GET");
+const importTemplateGet = functionBody(source.importTemplate, "GET");
+const simpleTemplateGet = functionBody(source.simpleTemplate, "GET");
+const orderImportTemplateGet = functionBody(source.orderImportTemplate, "GET");
 
 test("thumbnail route 导入统一 API 权限助手", () => {
   assert.match(source.thumbnail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
@@ -435,8 +441,8 @@ test("齐套和产品部件 GET 不会额外接入写权限", () => {
   assert.doesNotMatch(kittingGet, /kitting\.execute/);
   assert.doesNotMatch(productPartsGet, /product\.update|part\.create/);
 });
-test("本阶段未虚假接入备份读取 API", () => {
-  assert.doesNotMatch(source.backupList, /requireApiPermission/);
+test("备份创建 route 尚未虚假接入读取权限", () => {
+  assert.doesNotMatch(source.backupCreate, /requireApi(?:Any|All)?Permission/);
 });
 
 test("齐套 route 导入统一 API 权限助手", () => {
@@ -500,9 +506,9 @@ test("新读取 API 测试使用独立 GET 函数体", () => {
   assert.doesNotMatch(kittingGet, /export async function POST/);
   assert.doesNotMatch(productPartsGet, /export async function POST/);
 });
-test("导入模板 API 仍未提前接入权限助手", () => {
-  assert.doesNotMatch(source.importTemplate, /requireApi(?:Any|All)?Permission/);
-  assert.doesNotMatch(source.orderImportTemplate, /requireApi(?:Any|All)?Permission/);
+test("导入模板下载不提前要求 import.execute", () => {
+  assert.doesNotMatch(importTemplateGet, /import\.execute/);
+  assert.doesNotMatch(simpleTemplateGet, /import\.execute/);
 });
 test("API 权限静态测试自身不连接数据库或写文件", () => {
   const forbiddenDatabase = new RegExp(`Prisma${"Client"}|@/lib/${"prisma"}`);
@@ -514,3 +520,31 @@ test("API 权限静态测试自身不连接数据库或写文件", () => {
   assert.doesNotMatch(source.self, forbiddenDatabase);
   for (const pattern of forbiddenWrites) assert.doesNotMatch(source.self, pattern);
 });
+test("备份列表 route 导入统一 API 权限助手", () => assert.match(source.backupList, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/));
+test("备份列表 GET 只要求 backup.view", () => { assert.equal(occurrenceCount(backupListGet, 'requireApiPermission("backup.view")'), 1); assert.doesNotMatch(backupListGet, /backup\.create/); });
+test("备份列表鉴权早于文件系统和 Git", () => { for (const marker of ["readdir(backupRoot", "stat(databasePath)", "readFile(path.join", "open(databasePath", "git([\"rev-parse\""]) assertBefore(backupListGet, 'requireApiPermission("backup.view")', marker); });
+test("备份列表保留排序、空列表与 JSON 响应", () => { assert.match(backupListGet, /\.catch\(\(\) => \[\]\)/); assert.match(backupListGet, /records\.sort/); assert.match(backupListGet, /NextResponse\.json\(\{ success: true, records/); });
+test("备份列表不新增下载或用户路径", () => assert.doesNotMatch(backupListGet, /Content-Disposition|searchParams|request\.url/));
+test("标准模板 route 导入统一 API 权限助手", () => assert.match(source.importTemplate, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/));
+test("标准模板 GET 只要求 import.view", () => { assert.equal(occurrenceCount(importTemplateGet, 'requireApiPermission("import.view")'), 1); assert.doesNotMatch(importTemplateGet, /import\.preview|import\.execute/); });
+test("标准模板鉴权早于工作簿与响应构造", () => { for (const marker of ["new ExcelJS.Workbook", "addWorksheet", "writeBuffer", "Content-Disposition"]) assertBefore(importTemplateGet, 'requireApiPermission("import.view")', marker); });
+test("标准模板保留文件名、MIME 和错误文案", () => { assert.match(importTemplateGet, /订单产品部件导入模板\.xlsx/); assert.match(importTemplateGet, /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/); assert.match(importTemplateGet, /下载模板失败。/); });
+test("简化模板 route 导入统一 API 权限助手", () => assert.match(source.simpleTemplate, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/));
+test("简化模板 GET 只要求 import.view", () => { assert.equal(occurrenceCount(simpleTemplateGet, 'requireApiPermission("import.view")'), 1); assert.doesNotMatch(simpleTemplateGet, /import\.preview|import\.execute/); });
+test("简化模板鉴权早于工作簿和 writeBuffer", () => { assertBefore(simpleTemplateGet, 'requireApiPermission("import.view")', "new ExcelJS.Workbook"); assertBefore(simpleTemplateGet, 'requireApiPermission("import.view")', "writeBuffer"); });
+test("简化模板保留文件名、MIME 和错误文案", () => { assert.match(simpleTemplateGet, /全局简易导入模板\.xlsx/); assert.match(simpleTemplateGet, /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/); assert.match(simpleTemplateGet, /下载模板失败。/); });
+test("订单模板 route 导入全部权限助手", () => assert.match(source.orderImportTemplate, /import \{ requireApiAllPermissions \} from "@\/lib\/auth\/authorization"/));
+test("订单模板 GET 精确要求订单查看和导入权限", () => assert.match(orderImportTemplateGet, /requireApiAllPermissions\(\[\s*"order\.view",\s*"order\.importProducts"\s*\]\)/));
+test("订单模板 GET 不额外要求第三个权限或 import.view", () => assert.doesNotMatch(orderImportTemplateGet, /import\.view|order\.update|part\.create/));
+test("订单模板鉴权早于工作簿和 writeBuffer", () => { assertBefore(orderImportTemplateGet, "requireApiAllPermissions", "new ExcelJS.Workbook"); assertBefore(orderImportTemplateGet, "requireApiAllPermissions", "writeBuffer"); });
+test("订单模板保持无 params、Prisma 与 404", () => assert.doesNotMatch(orderImportTemplateGet, /context\.params|prisma\.|status: 404/));
+test("订单模板保留文件名、MIME 和模板结构", () => { assert.match(orderImportTemplateGet, /订单产品部件导入模板\.xlsx/); assert.match(orderImportTemplateGet, /ORDER_PRODUCT_IMPORT_HEADERS/); assert.match(orderImportTemplateGet, /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/); });
+test("四个新增下载和列表 GET 均保持统一权限失败返回", () => { for (const handler of [backupListGet, importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/); });
+test("三个模板 GET 不读取 Prisma、params 或本地文件", () => { for (const handler of [importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.doesNotMatch(handler, /prisma\.|context\.params|readFile\(|readdir\(/); });
+test("备份创建和导入写接口未提前接入权限助手", () => assert.doesNotMatch(source.backupCreate, /requireApi(?:Any|All)?Permission/));
+test("导入预览和确认接口仍未提前接入权限助手", async () => { const paths = [["imports","excel","preview","route.ts"],["imports","excel","confirm","route.ts"],["imports","excel","simple-preview","route.ts"],["imports","excel","simple-confirm","route.ts"],["orders","[id]","import-products","confirm","route.ts"]]; for (const segments of paths) assert.doesNotMatch(await readSource("src","app","api",...segments), /requireApi(?:Any|All)?Permission/); });
+test("新增 route 测试均使用独立 GET 函数体", () => { for (const handler of [backupListGet, importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.doesNotMatch(handler, /export async function POST/); });
+test("模板 GET 不直接使用 requireApiUser", () => { for (const handler of [importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.doesNotMatch(handler, /requireApiUser/); });
+test("备份列表 GET 不直接使用 requireApiUser", () => assert.doesNotMatch(backupListGet, /requireApiUser/));
+test("订单模板 GET 不连续调用单权限助手", () => assert.doesNotMatch(orderImportTemplateGet, /requireApiPermission\(/));
+test("模板 GET 保持二进制 Response 返回", () => { for (const handler of [importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.match(handler, /return new Response\(buffer/); });

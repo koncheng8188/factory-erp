@@ -605,7 +605,11 @@ test("仅已批准的读取 API 引用权限助手", async () => {
     "outsourcing/route.ts",
     "returns/route.ts",
     "kitting/[productId]/route.ts",
-    "products/[id]/parts/route.ts"
+    "products/[id]/parts/route.ts",
+    "system/backup/list/route.ts",
+    "imports/excel/template/route.ts",
+    "imports/excel/simple-template/route.ts",
+    "orders/[id]/import-products/template/route.ts"
   ]);
   const { readdir } = await import("node:fs/promises");
   async function scan(directory) {

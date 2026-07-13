@@ -1,9 +1,10 @@
 import ExcelJS from "exceljs";
 import { SIMPLE_IMPORT_HEADERS, SIMPLE_IMPORT_SHEET_NAME } from "@/lib/import-excel-simple";
+import { requireApiPermission } from "@/lib/auth/authorization";
 import { requireApiUser } from "@/lib/auth/api-user";
 
 export async function GET() {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiPermission("import.view");
   if (!authResult.ok) return authResult.response;
   try {
     const workbook = new ExcelJS.Workbook();

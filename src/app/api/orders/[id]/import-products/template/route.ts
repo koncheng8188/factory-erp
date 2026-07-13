@@ -1,9 +1,13 @@
 import ExcelJS from "exceljs";
 import { ORDER_PRODUCT_IMPORT_HEADERS, ORDER_PRODUCT_IMPORT_SHEET_NAME } from "@/lib/import-order-products";
+import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { requireApiUser } from "@/lib/auth/api-user";
 
 export async function GET() {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "order.importProducts"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const workbook = new ExcelJS.Workbook();

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { open, readdir, readFile, stat } from "fs/promises";
 import path from "path";
 import { execFileSync } from "child_process";
+import { requireApiPermission } from "@/lib/auth/authorization";
 import { requireApiUser } from "@/lib/auth/api-user";
 import { backupRoot, formatFileSize, inspectDirectory } from "@/lib/system-backup";
 
@@ -11,7 +12,7 @@ function git(args: string[], fallback: string) { try { return execFileSync("git"
 function infoValue(content: string, label: string, fallback: string) { return new RegExp(`^${label}：(.*)$`, "m").exec(content)?.[1]?.trim() || fallback; }
 
 export async function GET() {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiPermission("backup.view");
   if (!authResult.ok) return authResult.response;
   try {
     const entries = await readdir(backupRoot, { withFileTypes: true }).catch(() => []);
