@@ -12,6 +12,10 @@ const files = {
   parts: "src/app/(protected)/parts/page.tsx",
   data: "src/app/(protected)/settings/data/page.tsx",
   returns: "src/app/(protected)/returns/page.tsx",
+  kitting: "src/app/(protected)/kitting/page.tsx",
+  kittingManager: "src/app/(protected)/kitting/kitting-manager.tsx",
+  excelImport: "src/app/(protected)/imports/excel/page.tsx",
+  excelImportManager: "src/app/(protected)/imports/excel/import-excel-manager.tsx",
   customers: "src/app/(protected)/customers/page.tsx",
   orders: "src/app/(protected)/orders/page.tsx",
   outsourcing: "src/app/(protected)/outsourcing/page.tsx",
@@ -119,18 +123,14 @@ test("部件菜单绑定 part.view", () => assert.equal(menuEntry("部件管理"
 test("图纸管理菜单绑定 drawing.view", () => assert.equal(menuEntry("图纸管理"), "drawing.view"));
 test("数据管理菜单绑定 dataManagement.view", () => assert.equal(menuEntry("数据管理"), "dataManagement.view"));
 test("回厂登记菜单绑定 return.view", () => assert.equal(menuEntry("回厂登记"), "return.view"));
-test("送货管理菜单继续不绑定权限", () => assert.equal(menuEntry("送货管理"), undefined));
+test("送货管理菜单绑定 delivery.view", () => assert.equal(menuEntry("送货管理"), "delivery.view"));
 test("布局使用 hasPermission 和空覆盖", () => assert.match(source.layout, /hasPermission\(role, item\.permission, \[\]\)/));
 test("布局没有角色硬编码", () => assert.doesNotMatch(source.layout, /role\s*(?:===|!==)/));
-test("未接入菜单没有提前绑定权限", () => {
-  for (const label of ["客户管理", "订单管理", "生产进度", "齐套检查", "外发电镀", "送货管理", "生产日报", "生产异常", "Excel 导入", "系统备份"]) {
-    assert.equal(menuEntry(label), undefined, `${label} 不应提前绑定权限`);
-  }
-});
+test("系统备份继续留给 C2d-3c，不提前绑定权限", () => assert.equal(menuEntry("系统备份"), undefined));
 test("forbidden 页面不调用业务权限助手", () => assert.doesNotMatch(source.forbidden, /requirePage(?:Any|All)?Permission/));
 test("导航绑定的权限键全部合法", () => {
   const bound = [...source.layout.matchAll(/permission: "([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(bound, ["dashboard.view", "product.view", "part.view", "drawing.view", "return.view", "dataManagement.view"]);
+  assert.deepEqual(bound, ["dashboard.view", "customer.view", "product.view", "part.view", "drawing.view", "order.view", "production.view", "kitting.view", "outsource.view", "return.view", "delivery.view", "production.daily.view", "production.abnormal.view", "import.view", "dataManagement.view"]);
   for (const permission of bound) assert.equal(isPermission(permission), true);
 });
 test("SALES 默认具有产品和部件查看权限", () => {
@@ -633,6 +633,8 @@ const customerPageBody = functionBody(source.customers, "export default async fu
 const ordersPageBody = functionBody(source.orders, "export default async function OrdersPage");
 const outsourcingPageBody = functionBody(source.outsourcing, "export default async function OutsourcingPage");
 const deliveryPageBody = functionBody(source.delivery, "export default async function DeliveryPage");
+const kittingPageBody = functionBody(source.kitting, "export default async function KittingPage");
+const excelImportPageBody = functionBody(source.excelImport, "export default async function ExcelImportPage");
 
 test("客户列表导入页面权限助手", () => assert.match(source.customers, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
 test("客户列表只要求一次 customer.view", () => assert.equal(occurrenceCount(customerPageBody, 'requirePagePermission("customer.view")'), 1));
@@ -687,6 +689,68 @@ test("送货列表保留筛选、排序和详情链接", () => {
   assert.match(deliveryPageBody, /href=\{`\/delivery\/\$\{deliveryOrder\.id\}`\}/);
 });
 test("送货列表未提前接入创建或写权限", () => assert.doesNotMatch(deliveryPageBody, /delivery\.(?:create|update|delete)/));
+
+test("齐套页面导入页面权限助手", () => assert.match(source.kitting, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
+test("齐套页面只要求一次 kitting.view", () => assert.equal(occurrenceCount(kittingPageBody, 'requirePagePermission("kitting.view")'), 1));
+test("齐套页面鉴权早于 searchParams", () => assertBefore(kittingPageBody, 'requirePagePermission("kitting.view")', "await searchParams"));
+test("齐套页面鉴权早于 Prisma 查询", () => assertBefore(kittingPageBody, 'requirePagePermission("kitting.view")', "prisma.product.findMany"));
+test("齐套页面鉴权早于齐套计算", () => assertBefore(kittingPageBody, 'requirePagePermission("kitting.view")', "calculateKittingResult"));
+test("齐套页面不重复认证、不读取会话且无角色硬编码", () => assert.doesNotMatch(kittingPageBody, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i));
+test("齐套页面保留原产品订单部件查询和数据转换", () => {
+  assert.match(kittingPageBody, /prisma\.product\.findMany/);
+  assert.match(kittingPageBody, /orderBy: \{ createdAt: "desc" \}/);
+  assert.match(kittingPageBody, /const kittingProducts = products\.map/);
+});
+test("齐套执行入口保持且页面未提前接入 kitting.execute", () => {
+  assert.match(source.kittingManager, /fetch\(`\/api\/kitting\/\$\{product\.id\}`, \{ method: "POST" \}\)/);
+  assert.doesNotMatch(kittingPageBody, /kitting\.execute/);
+});
+
+test("全局导入页面导入页面权限助手", () => assert.match(source.excelImport, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
+test("全局导入页面只要求一次 import.view", () => assert.equal(occurrenceCount(excelImportPageBody, 'requirePagePermission("import.view")'), 1));
+test("全局导入页面鉴权早于 Manager 渲染", () => assertBefore(excelImportPageBody, 'requirePagePermission("import.view")', "return <ImportExcelManager"));
+test("全局导入页面不重复认证、不读取会话且无角色硬编码", () => assert.doesNotMatch(excelImportPageBody, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i));
+test("全局导入保留标准与简化模板链接", () => {
+  assert.match(source.excelImportManager, /"\/api\/imports\/excel\/template"/);
+  assert.match(source.excelImportManager, /"\/api\/imports\/excel\/simple-template"/);
+});
+test("全局导入保留预览与确认调用", () => {
+  assert.match(source.excelImportManager, /fetch\(previewUrl/);
+  assert.match(source.excelImportManager, /fetch\(confirmUrl/);
+});
+test("全局导入页面未提前接入 preview 或 execute 权限", () => assert.doesNotMatch(excelImportPageBody, /import\.(?:preview|execute)/));
+
+test("客户管理菜单绑定 customer.view", () => assert.equal(menuEntry("客户管理"), "customer.view"));
+test("订单管理菜单绑定 order.view", () => assert.equal(menuEntry("订单管理"), "order.view"));
+test("生产进度菜单绑定 production.view", () => assert.equal(menuEntry("生产进度"), "production.view"));
+test("齐套检查菜单绑定 kitting.view", () => assert.equal(menuEntry("齐套检查"), "kitting.view"));
+test("外发电镀菜单绑定 outsource.view", () => assert.equal(menuEntry("外发电镀"), "outsource.view"));
+test("生产日报菜单绑定 production.daily.view", () => assert.equal(menuEntry("生产日报"), "production.daily.view"));
+test("生产异常菜单绑定 production.abnormal.view", () => assert.equal(menuEntry("生产异常"), "production.abnormal.view"));
+test("Excel 导入菜单绑定 import.view", () => assert.equal(menuEntry("Excel 导入"), "import.view"));
+test("九项 C2d-3b 新导航权限均为合法权限", () => {
+  for (const permission of ["customer.view", "order.view", "production.view", "kitting.view", "outsource.view", "delivery.view", "production.daily.view", "production.abnormal.view", "import.view"]) assert.equal(isPermission(permission), true);
+});
+
+test("六项既有导航绑定保持不变", () => {
+  assert.equal(menuEntry("首页看板"), "dashboard.view");
+  assert.equal(menuEntry("产品管理"), "product.view");
+  assert.equal(menuEntry("部件管理"), "part.view");
+  assert.equal(menuEntry("图纸管理"), "drawing.view");
+  assert.equal(menuEntry("回厂登记"), "return.view");
+  assert.equal(menuEntry("数据管理"), "dataManagement.view");
+});
+test("导航继续集中使用 hasPermission 且没有角色硬编码", () => {
+  assert.match(source.layout, /hasPermission\(role, item\.permission, \[\]\)/);
+  assert.doesNotMatch(source.layout, /role\s*(?:===|!==)/);
+});
+test("C2d-3b 保持 API allowlist 精确为十四条 route", async () => {
+  const self = await readFile(fileURLToPath(import.meta.url), "utf8");
+  const match = /const permittedRoutes = new Set\(\[([\s\S]*?)\]\);/.exec(self);
+  assert.ok(match, "未找到 API allowlist");
+  assert.equal([...match[1].matchAll(/"[^"\n]+\/route\.ts"/g)].length, 14);
+});
+test("C2d-3b 不引入备份导航权限", () => assert.doesNotMatch(source.layout, /label: "系统备份", permission: "backup\.view"/));
 
 test("仅已批准的读取 API 引用权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");

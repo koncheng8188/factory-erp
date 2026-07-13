@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { calculateKittingResult } from "@/lib/kitting";
 import { KittingManager } from "./kitting-manager";
 
@@ -9,6 +10,8 @@ type KittingPageProps = {
 };
 
 export default async function KittingPage({ searchParams }: KittingPageProps) {
+  await requirePagePermission("kitting.view");
+
   const { productId } = await searchParams;
   const products = await prisma.product.findMany({
     orderBy: { createdAt: "desc" },

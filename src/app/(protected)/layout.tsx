@@ -17,12 +17,12 @@ type NavigationGroup = {
 
 const menuGroups = [
   { title: "首页", items: [{ href: "/", label: "首页看板", permission: "dashboard.view" }] },
-  { title: "基础资料", items: [{ href: "/customers", label: "客户管理" }, { href: "/products", label: "产品管理", permission: "product.view" }, { href: "/parts", label: "部件管理", permission: "part.view" }, { href: "/drawings", label: "图纸管理", permission: "drawing.view" }] },
-  { title: "订单生产", items: [{ href: "/orders", label: "订单管理" }, { href: "/production", label: "生产进度" }, { href: "/kitting", label: "齐套检查" }] },
-  { title: "外发回厂", items: [{ href: "/outsourcing", label: "外发电镀" }, { href: "/returns", label: "回厂登记", permission: "return.view" }] },
-  { title: "送货出库", items: [{ href: "/delivery", label: "送货管理" }] },
-  { title: "报表打印", items: [{ href: "/production/daily", label: "生产日报" }, { href: "/production/abnormal", label: "生产异常" }] },
-  { title: "系统工具", items: [{ href: "/imports/excel", label: "Excel 导入" }, { href: "/settings/data", label: "数据管理", permission: "dataManagement.view" }, { href: "/settings/backup", label: "系统备份" }] }
+  { title: "基础资料", items: [{ href: "/customers", label: "客户管理", permission: "customer.view" }, { href: "/products", label: "产品管理", permission: "product.view" }, { href: "/parts", label: "部件管理", permission: "part.view" }, { href: "/drawings", label: "图纸管理", permission: "drawing.view" }] },
+  { title: "订单生产", items: [{ href: "/orders", label: "订单管理", permission: "order.view" }, { href: "/production", label: "生产进度", permission: "production.view" }, { href: "/kitting", label: "齐套检查", permission: "kitting.view" }] },
+  { title: "外发回厂", items: [{ href: "/outsourcing", label: "外发电镀", permission: "outsource.view" }, { href: "/returns", label: "回厂登记", permission: "return.view" }] },
+  { title: "送货出库", items: [{ href: "/delivery", label: "送货管理", permission: "delivery.view" }] },
+  { title: "报表打印", items: [{ href: "/production/daily", label: "生产日报", permission: "production.daily.view" }, { href: "/production/abnormal", label: "生产异常", permission: "production.abnormal.view" }] },
+  { title: "系统工具", items: [{ href: "/imports/excel", label: "Excel 导入", permission: "import.view" }, { href: "/settings/data", label: "数据管理", permission: "dataManagement.view" }, { href: "/settings/backup", label: "系统备份" }] }
 ] as const satisfies readonly NavigationGroup[];
 
 function canViewNavigationItem(role: Parameters<typeof hasPermission>[0], item: NavigationItem) {
