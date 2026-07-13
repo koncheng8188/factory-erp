@@ -76,6 +76,7 @@ type ProductionProduct = {
 
 type ProductionManagerProps = {
   products: ProductionProduct[];
+  canPrintProduction: boolean;
   filters: {
     keyword: string;
     stage: StageFilter;
@@ -272,7 +273,7 @@ function StatCard({ title, value }: { title: string; value: number }) {
   );
 }
 
-export function ProductionManager({ products, filters }: ProductionManagerProps) {
+export function ProductionManager({ products, filters, canPrintProduction }: ProductionManagerProps) {
   const router = useRouter();
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const floatingScrollRef = useRef<HTMLDivElement | null>(null);
@@ -478,13 +479,15 @@ export function ProductionManager({ products, filters }: ProductionManagerProps)
           >
             生产日报
           </Link>
-          <button
-            className={buttonPrimary}
-            type="button"
-            onClick={() => window.print()}
-          >
-            打印生产进度跟踪表
-          </button>
+          {canPrintProduction ? (
+            <button
+              className={buttonPrimary}
+              type="button"
+              onClick={() => window.print()}
+            >
+              打印生产进度跟踪表
+            </button>
+          ) : null}
         </div>
       </section>
 

@@ -14,6 +14,12 @@ const files = {
   returns: "src/app/(protected)/returns/page.tsx",
   orderDetail: "src/app/(protected)/orders/[id]/page.tsx",
   orderManager: "src/app/(protected)/orders/[id]/order-detail-manager.tsx",
+  production: "src/app/(protected)/production/page.tsx",
+  productionManager: "src/app/(protected)/production/production-manager.tsx",
+  productionDaily: "src/app/(protected)/production/daily/page.tsx",
+  dailyPrintButton: "src/app/(protected)/production/daily/daily-print-button.tsx",
+  productionAbnormal: "src/app/(protected)/production/abnormal/page.tsx",
+  abnormalPrintButton: "src/app/(protected)/production/abnormal/abnormal-print-button.tsx",
   outsourceDetail: "src/app/(protected)/outsourcing/[id]/page.tsx",
   returnDetail: "src/app/(protected)/returns/[id]/page.tsx",
   deliveryDetail: "src/app/(protected)/delivery/[id]/page.tsx",
@@ -484,6 +490,108 @@ test("图纸上传中心链接继续保留", () => assert.match(source.orderMana
 test("订单详情页与 Client Manager 不新增写权限标志", () => {
   assert.doesNotMatch(source.orderDetail, /can(?:Create|Update|Upload|SetMain|Obsolete)Drawing/);
   assert.doesNotMatch(source.orderManager, /can(?:Create|Update|Upload|SetMain|Obsolete)Drawing/);
+});
+test("生产进度页导入统一页面权限与权限判断助手", () => {
+  assert.match(source.production, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.production, /import \{ hasPermission \} from "@\/lib\/permissions"/);
+});
+test("生产进度页只要求一次 production.view", () => {
+  assert.equal(occurrenceCount(source.production, 'requirePagePermission("production.view")'), 1);
+});
+test("生产进度页查看权限早于参数处理和 Prisma", () => {
+  assertBefore(source.production, 'requirePagePermission("production.view")', "await searchParams");
+  assertBefore(source.production, 'requirePagePermission("production.view")', "prisma.product.findMany");
+});
+test("生产进度页不重复认证、不读取会话且无角色硬编码", () => {
+  assert.doesNotMatch(source.production, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i);
+});
+test("生产进度页计算 production.print 官方按钮权限", () => {
+  assert.match(source.production, /const canPrintProduction = hasPermission\(user\.role, "production\.print", \[\]\)/);
+});
+test("生产进度页将打印权限布尔值传入 Client Manager", () => {
+  assert.match(source.production, /<ProductionManager[\s\S]*?canPrintProduction=\{canPrintProduction\}/);
+});
+test("ProductionManager 声明并接收打印权限 prop", () => {
+  assert.match(source.productionManager, /canPrintProduction: boolean/);
+  assert.match(source.productionManager, /\{ products, filters, canPrintProduction \}/);
+});
+test("生产进度官方打印按钮受明确 JSX 权限边界控制", () => {
+  const header = sourceSlice(source.productionManager, '<div className="flex flex-wrap gap-3">', "</div>\n      </section>");
+  assert.match(header, /\{canPrintProduction \? \([\s\S]*?打印生产进度跟踪表[\s\S]*?\) : null\}/);
+});
+test("生产进度打印仍调用原 window.print 且未用 disabled 替代", () => {
+  const header = sourceSlice(source.productionManager, '<div className="flex flex-wrap gap-3">', "</div>\n      </section>");
+  assert.match(header, /onClick=\{\(\) => window\.print\(\)\}/);
+  assert.doesNotMatch(header, /disabled=|hidden|className=.*(?:hidden|invisible)/);
+});
+test("生产日报页导入统一页面权限与权限判断助手", () => {
+  assert.match(source.productionDaily, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.productionDaily, /import \{ hasPermission \} from "@\/lib\/permissions"/);
+});
+test("生产日报页只要求一次 production.daily.view", () => {
+  assert.equal(occurrenceCount(source.productionDaily, 'requirePagePermission("production.daily.view")'), 1);
+});
+test("生产日报查看权限早于参数处理和 Prisma", () => {
+  assertBefore(source.productionDaily, 'requirePagePermission("production.daily.view")', "await searchParams");
+  assertBefore(source.productionDaily, 'requirePagePermission("production.daily.view")', "prisma.productPartProgressLog.findMany");
+});
+test("生产日报页不重复认证、不读取会话且无角色硬编码", () => {
+  assert.doesNotMatch(source.productionDaily, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i);
+});
+test("生产日报页计算 production.daily.print 官方按钮权限", () => {
+  assert.match(source.productionDaily, /const canPrintDaily = hasPermission\(user\.role, "production\.daily\.print", \[\]\)/);
+});
+test("生产日报官方打印按钮由 Server Component 条件渲染", () => {
+  const header = sourceSlice(source.productionDaily, '<div className="flex flex-wrap items-center gap-3">', "</div>\n      </section>");
+  assert.match(header, /\{canPrintDaily \? <DailyPrintButton \/> : null\}/);
+});
+test("生产日报按钮保持原 window.print 行为且不读取权限", () => {
+  assert.match(source.dailyPrintButton, /onClick=\{\(\) => window\.print\(\)\}/);
+  assert.doesNotMatch(source.dailyPrintButton, /cookies\(|document\.cookie|session|hasPermission|requirePagePermission|role\s*(?:===|!==)/i);
+});
+test("生产日报查询与打印样式仍保留", () => {
+  assert.match(source.productionDaily, /prisma\.productPartProgressLog\.findMany/);
+  assert.match(source.productionDaily, /@media print/);
+});
+test("生产异常页导入统一页面权限与权限判断助手", () => {
+  assert.match(source.productionAbnormal, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.productionAbnormal, /import \{ hasPermission \} from "@\/lib\/permissions"/);
+});
+test("生产异常页只要求一次 production.abnormal.view", () => {
+  assert.equal(occurrenceCount(source.productionAbnormal, 'requirePagePermission("production.abnormal.view")'), 1);
+});
+test("生产异常查看权限早于参数处理和 Prisma", () => {
+  assertBefore(source.productionAbnormal, 'requirePagePermission("production.abnormal.view")', "await searchParams");
+  assertBefore(source.productionAbnormal, 'requirePagePermission("production.abnormal.view")', "prisma.productPartAbnormal.findMany");
+});
+test("生产异常页不重复认证、不读取会话且无角色硬编码", () => {
+  assert.doesNotMatch(source.productionAbnormal, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i);
+});
+test("生产异常页计算 production.abnormal.print 官方按钮权限", () => {
+  assert.match(source.productionAbnormal, /const canPrintAbnormal = hasPermission\(user\.role, "production\.abnormal\.print", \[\]\)/);
+});
+test("生产异常官方打印按钮由 Server Component 条件渲染", () => {
+  const header = sourceSlice(source.productionAbnormal, '<div className="flex flex-wrap items-center gap-3">', "</div>\n      </section>");
+  assert.match(header, /\{canPrintAbnormal \? <AbnormalPrintButton \/> : null\}/);
+});
+test("生产异常按钮保持原 window.print 行为且不读取权限", () => {
+  assert.match(source.abnormalPrintButton, /onClick=\{\(\) => window\.print\(\)\}/);
+  assert.doesNotMatch(source.abnormalPrintButton, /cookies\(|document\.cookie|session|hasPermission|requirePagePermission|role\s*(?:===|!==)/i);
+});
+test("生产异常查询与打印样式仍保留", () => {
+  assert.match(source.productionAbnormal, /prisma\.productPartAbnormal\.findMany/);
+  assert.match(source.productionAbnormal, /@media print/);
+});
+test("六个生产查看与打印权限键均为合法权限", () => {
+  for (const permission of ["production.view", "production.print", "production.daily.view", "production.daily.print", "production.abnormal.view", "production.abnormal.print"]) assert.equal(isPermission(permission), true);
+});
+test("生产 Client Component 不读取 Cookie、Session 或角色", () => {
+  for (const key of ["productionManager", "dailyPrintButton", "abnormalPrintButton"]) assert.doesNotMatch(source[key], /cookies\(|document\.cookie|session|role\s*(?:===|!==)/i);
+});
+test("生产同页打印不使用 CSS 隐藏官方按钮替代权限分支", () => {
+  assert.doesNotMatch(source.productionManager, /canPrintProduction[\s\S]{0,200}className=.*(?:hidden|invisible)/);
+  assert.doesNotMatch(source.productionDaily, /canPrintDaily[\s\S]{0,200}className=.*(?:hidden|invisible)/);
+  assert.doesNotMatch(source.productionAbnormal, /canPrintAbnormal[\s\S]{0,200}className=.*(?:hidden|invisible)/);
 });
 test("仅既有图纸读取 API 引用权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");

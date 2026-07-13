@@ -1,5 +1,7 @@
 import type { Prisma, ProductPartAbnormalStatus } from "@prisma/client";
 import Link from "next/link";
+import { requirePagePermission } from "@/lib/auth/authorization";
+import { hasPermission } from "@/lib/permissions";
 import { getProductPartStatusLabel } from "@/lib/product-part-status";
 import { prisma } from "@/lib/prisma";
 import { AbnormalPrintButton } from "./abnormal-print-button";
@@ -98,6 +100,9 @@ function StatCard({ title, value, tone = "normal" }: { title: string; value: num
 }
 
 export default async function ProductionAbnormalPage({ searchParams }: ProductionAbnormalPageProps) {
+  const user = await requirePagePermission("production.abnormal.view");
+  const canPrintAbnormal = hasPermission(user.role, "production.abnormal.print", []);
+
   const params = await searchParams;
   const status = parseStatusFilter(firstQueryValue(params?.status).trim());
   const keyword = firstQueryValue(params?.keyword).trim();
@@ -175,7 +180,7 @@ export default async function ProductionAbnormalPage({ searchParams }: Productio
           <p className="mt-2 text-sm text-[#667085]">查看生产异常原因，处理完成后恢复部件生产阶段。</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <AbnormalPrintButton />
+          {canPrintAbnormal ? <AbnormalPrintButton /> : null}
           <Link
             className="inline-flex items-center justify-center rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]"
             href="/production"

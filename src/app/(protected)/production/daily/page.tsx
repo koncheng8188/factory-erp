@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { requirePagePermission } from "@/lib/auth/authorization";
+import { hasPermission } from "@/lib/permissions";
 import { getProductPartStatusLabel } from "@/lib/product-part-status";
 import { prisma } from "@/lib/prisma";
 import { DailyPrintButton } from "./daily-print-button";
@@ -62,6 +64,9 @@ function StatCard({ title, value }: { title: string; value: number }) {
 }
 
 export default async function ProductionDailyPage({ searchParams }: ProductionDailyPageProps) {
+  const user = await requirePagePermission("production.daily.view");
+  const canPrintDaily = hasPermission(user.role, "production.daily.print", []);
+
   const params = await searchParams;
   const rawDate = firstQueryValue(params?.date).trim();
   const parsedDate = parseDateFilter(rawDate);
@@ -101,7 +106,7 @@ export default async function ProductionDailyPage({ searchParams }: ProductionDa
           <p className="mt-2 text-sm text-[#667085]">按日期查看部件生产推进完成记录。</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <DailyPrintButton />
+          {canPrintDaily ? <DailyPrintButton /> : null}
           <Link
             className="inline-flex items-center justify-center rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]"
             href="/production"

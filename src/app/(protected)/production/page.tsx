@@ -1,4 +1,6 @@
 import type { Prisma, ProductStatus } from "@prisma/client";
+import { requirePagePermission } from "@/lib/auth/authorization";
+import { hasPermission } from "@/lib/permissions";
 import { getProductPartStatusLabel } from "@/lib/product-part-status";
 import { prisma } from "@/lib/prisma";
 import { ProductionManager } from "./production-manager";
@@ -89,6 +91,9 @@ function quickWhere(quick: QuickFilter): Prisma.ProductWhereInput | null {
 }
 
 export default async function ProductionPage({ searchParams }: ProductionPageProps) {
+  const user = await requirePagePermission("production.view");
+  const canPrintProduction = hasPermission(user.role, "production.print", []);
+
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
   const stage = parseStage(firstQueryValue(params?.stage).trim());
@@ -194,5 +199,5 @@ export default async function ProductionPage({ searchParams }: ProductionPagePro
     };
   });
 
-  return <ProductionManager products={productionProducts} filters={{ keyword, stage, quick }} />;
+  return <ProductionManager products={productionProducts} filters={{ keyword, stage, quick }} canPrintProduction={canPrintProduction} />;
 }
