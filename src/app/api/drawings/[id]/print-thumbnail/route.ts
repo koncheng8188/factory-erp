@@ -1,10 +1,10 @@
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiPermission } from "@/lib/auth/authorization";
 import { contentDisposition, getDrawingFile } from "@/lib/drawing-file-access";
 
 export const runtime = "nodejs";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiPermission("drawing.view");
   if (!authResult.ok) return authResult.response;
   const { id } = await context.params;
   const file = await getDrawingFile(id, "print-thumbnail");

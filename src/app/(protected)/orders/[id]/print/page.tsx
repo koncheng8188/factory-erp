@@ -1,5 +1,6 @@
 import type { PartDrawing } from "@prisma/client";
 import { notFound } from "next/navigation";
+import { requirePageAllPermissions, requirePagePermission } from "@/lib/auth/authorization";
 import { getOrderStatusLabel } from "@/lib/order-status";
 import { getProductPartStatusLabel } from "@/lib/product-part-status";
 import { getProductStatusLabel } from "@/lib/product-status";
@@ -53,6 +54,9 @@ function productColors(parts: Array<{ color: string | null }>) {
 }
 
 export default async function OrderPrintPage({ params }: OrderPrintPageProps) {
+  await requirePagePermission("order.view");
+  await requirePageAllPermissions(["order.print", "drawing.view"]);
+
   const { id } = await params;
   const order = await prisma.order.findFirst({
     where: {

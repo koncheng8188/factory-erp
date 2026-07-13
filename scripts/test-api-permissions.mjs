@@ -69,6 +69,7 @@ const source = {
 
 const thumbnailGet = functionBody(source.thumbnail, "GET");
 const fileGet = functionBody(source.file, "GET");
+const printThumbnailGet = functionBody(source.printThumbnail, "GET");
 const partsGet = functionBody(source.partsDrawings, "GET");
 const partsPost = functionBody(source.partsDrawings, "POST");
 
@@ -224,9 +225,9 @@ test("drawings page 不直接读取 Cookie、Session 或角色", () => {
   assert.doesNotMatch(source.drawingsPage, /cookies\(|session|role\s*===/i);
 });
 
-test("print-thumbnail route 未在 C2a 接入权限助手", () => {
-  assert.match(source.printThumbnail, /requireApiUser\(\)/);
-  assert.doesNotMatch(source.printThumbnail, /requireApiPermission/);
+test("print-thumbnail route 已在 C2b-1 接入权限助手", () => {
+  assert.match(source.printThumbnail, /requireApiPermission\("drawing\.view"\)/);
+  assert.doesNotMatch(source.printThumbnail, /requireApiUser/);
 });
 
 test("图纸 PATCH 与 DELETE 写接口未在 C2a 接入权限助手", () => {
@@ -255,4 +256,69 @@ test("文件服务保持路径穿越和 MIME 防护", () => {
 test("静态测试自身不引入数据库、网络或写文件操作", () => {
   const blocked = ["@prisma" + "/client", "write" + "File", "append" + "File", "fetch" + "(", "spawn" + "("];
   for (const marker of blocked) assert.equal(source.self.includes(marker), false, `测试脚本不得包含 ${marker}`);
+});
+
+test("print-thumbnail route 导入统一 API 权限助手", () => {
+  assert.match(source.printThumbnail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+});
+
+test("print-thumbnail route 使用 drawing.view", () => {
+  assert.match(printThumbnailGet, /requireApiPermission\("drawing\.view"\)/);
+});
+
+test("print-thumbnail route 只调用一次 requireApiPermission", () => {
+  assert.equal(occurrenceCount(printThumbnailGet, 'requireApiPermission("drawing.view")'), 1);
+});
+
+test("print-thumbnail route 不使用 drawing.viewOriginal", () => {
+  assert.doesNotMatch(printThumbnailGet, /drawing\.viewOriginal/);
+});
+
+test("print-thumbnail route 不新增 drawing.print", () => {
+  assert.doesNotMatch(printThumbnailGet, /drawing\.print/);
+});
+
+test("print-thumbnail route 鉴权早于 params", () => {
+  assertBefore(printThumbnailGet, 'requireApiPermission("drawing.view")', "await context.params");
+});
+
+test("print-thumbnail route 鉴权早于文件服务调用", () => {
+  assertBefore(printThumbnailGet, 'requireApiPermission("drawing.view")', 'getDrawingFile(id, "print-thumbnail")');
+});
+
+test("print-thumbnail route 在权限失败后立即返回", () => {
+  assert.match(printThumbnailGet, /if \(!authResult\.ok\) return authResult\.response/);
+});
+
+test("print-thumbnail route 保持 nodejs runtime", () => {
+  assert.match(source.printThumbnail, /export const runtime = "nodejs"/);
+});
+
+test("print-thumbnail route 保持既有 private 文件服务", () => {
+  assert.match(source.printThumbnail, /import \{ contentDisposition, getDrawingFile \} from "@\/lib\/drawing-file-access"/);
+});
+
+test("print thumbnail 保持 printThumbnailUrl 优先", () => {
+  assert.match(source.fileAccess, /drawing\.printThumbnailUrl \?\? drawing\.thumbnailUrl/);
+});
+
+test("print thumbnail 保持 thumbnailUrl 回退", () => {
+  assert.match(source.fileAccess, /variant === "thumbnail" \? drawing\.thumbnailUrl : drawing\.printThumbnailUrl \?\? drawing\.thumbnailUrl/);
+});
+
+test("print-thumbnail route 不引入 public runtime 回退", () => {
+  assert.doesNotMatch(source.printThumbnail, /public\/uploads/);
+});
+
+test("普通 thumbnail 继续使用 drawing.view", () => {
+  assert.match(thumbnailGet, /requireApiPermission\("drawing\.view"\)/);
+});
+
+test("原件 file 继续使用 drawing.viewOriginal", () => {
+  assert.match(fileGet, /requireApiPermission\("drawing\.viewOriginal"\)/);
+});
+
+test("图纸写接口仍未接入 C2 权限", () => {
+  assert.doesNotMatch(source.drawingWrite, /requireApiPermission/);
+  assert.doesNotMatch(source.drawingMain, /requireApiPermission/);
 });
