@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
 
@@ -35,6 +36,8 @@ function DrawingPreview({ thumbnailUrl, fileName }: { thumbnailUrl: string | nul
 }
 
 export default async function DrawingsPage() {
+  await requirePagePermission("drawing.view");
+
   const drawings = (await prisma.partDrawing.findMany({
     orderBy: [{ createdAt: "desc" }],
     include: {

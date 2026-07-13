@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { allowedDrawingFileMessage, deleteSavedDrawingFiles, isAllowedDrawingFile, saveDrawingFile } from "@/lib/drawing-files";
+import { requireApiPermission } from "@/lib/auth/authorization";
 import { requireApiUser } from "@/lib/auth/api-user";
 import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
 
@@ -17,7 +18,7 @@ function normalizeOptional(value: FormDataEntryValue | null) {
 }
 
 export async function GET(_request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiPermission("drawing.view");
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
