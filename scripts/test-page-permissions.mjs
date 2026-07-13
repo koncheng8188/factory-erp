@@ -337,7 +337,46 @@ test("delivery.create 不参与送货明细查询条件", () => {
   const deliveryDetail = sourceSlice(source.dashboard, "const deliveryDetailDataPromise", "const drawingSummaryDataPromise");
   assert.doesNotMatch(deliveryDetail, /canCreateDelivery/);
 });
-test("delivery.create 仅在待送货待办链接处使用", () => assert.equal(occurrenceCount(source.dashboard, "canCreateDelivery"), 2));
+test("delivery.create 仅作为送货入口组合条件使用", () => assert.match(source.dashboard, /const canCreateDeliveryAction = canViewDeliverySummary && canCreateDelivery/));
+test("新建订单同时要求订单查看和创建权限", () => assert.match(source.dashboard, /const canCreateOrders = canViewOrders && hasPermission\(user\.role, "order\.create", \[\]\)/));
+test("生产进度入口复用生产查看权限", () => assert.match(source.dashboard, /\.\.\.\(canViewProduction \? \[\{ label: "生产进度", href: "\/production" \}\] : \[\]\)/));
+test("新建外发单同时要求外发查看和创建权限", () => assert.match(source.dashboard, /const canCreateOutsource = canViewOutsource && hasPermission\(user\.role, "outsource\.create", \[\]\)/));
+test("回厂登记同时要求回厂查看和创建权限", () => assert.match(source.dashboard, /const canCreateReturns = canViewReturns && hasPermission\(user\.role, "return\.create", \[\]\)/));
+test("新建送货单同时要求送货查看和创建权限", () => assert.match(source.dashboard, /const canCreateDeliveryAction = canViewDeliverySummary && canCreateDelivery/));
+test("系统备份要求 backup.view", () => assert.match(source.dashboard, /const canViewBackup = hasPermission\(user\.role, "backup\.view", \[\]\)/));
+test("生产日报同时要求查看和打印权限", () => assert.match(source.dashboard, /const canPrintProductionDaily = hasPermission\(user\.role, "production\.daily\.view", \[\]\)\s+&& hasPermission\(user\.role, "production\.daily\.print", \[\]\)/));
+test("生产异常清单同时要求查看和打印权限", () => assert.match(source.dashboard, /const canPrintProductionAbnormal = canViewProductionAbnormal\s+&& hasPermission\(user\.role, "production\.abnormal\.print", \[\]\)/));
+test("生产进度跟踪表同时要求查看和打印权限", () => assert.match(source.dashboard, /const canPrintProductionProgress = canViewProduction\s+&& hasPermission\(user\.role, "production\.print", \[\]\)/));
+test("常用操作数组按权限条件构造", () => {
+  for (const gate of ["canCreateOrders", "canViewProduction", "canCreateOutsource", "canCreateReturns", "canCreateDeliveryAction", "canViewBackup"]) assert.match(source.dashboard, new RegExp(`\\.\\.\\.\\(${gate} \\? \\[\\{ label:`));
+});
+test("常用打印数组按权限条件构造", () => {
+  for (const gate of ["canPrintProductionDaily", "canPrintProductionAbnormal", "canPrintProductionProgress"]) assert.match(source.dashboard, new RegExp(`\\.\\.\\.\\(${gate} \\? \\[\\{ label:`));
+});
+test("常用入口可见状态由数组长度计算", () => {
+  assert.match(source.dashboard, /const hasCommonActions = commonActionLinks\.length > 0/);
+  assert.match(source.dashboard, /const hasCommonPrints = commonPrintLinks\.length > 0/);
+});
+test("两个入口区块都为空时不渲染外层容器", () => assert.match(source.dashboard, /\{hasCommonActions \|\| hasCommonPrints \? \(/));
+test("常用操作为空时不渲染操作区块", () => assert.match(source.dashboard, /\{hasCommonActions \? \(\s+<section className=\{`\$\{card\} p-5`\}>/));
+test("常用打印为空时不渲染打印区块", () => assert.match(source.dashboard, /\{hasCommonPrints \? \(\s+<section className=\{`\$\{card\} p-5`\}>/));
+test("一个入口区块可见时使用单列布局", () => assert.match(source.dashboard, /: "xl:grid-cols-1"/));
+test("两个入口区块可见时保持双列布局", () => assert.match(source.dashboard, /hasCommonActions && hasCommonPrints\s+\? "xl:grid-cols-\[2fr_1fr\]"/));
+test("六个常用操作的文案和路由保持不变", () => {
+  for (const [label, href] of [["新建订单", "/orders"], ["生产进度", "/production"], ["新建外发单", "/outsourcing/new"], ["回厂登记", "/returns"], ["新建送货单", "/delivery/new"], ["系统备份", "/settings/backup"]]) assert.match(source.dashboard, new RegExp(`label: "${label}", href: "${href.replaceAll("/", "\\/")}"`));
+});
+test("三个常用打印入口的文案和路由保持不变", () => {
+  for (const [label, href] of [["生产日报", "/production/daily"], ["生产异常清单", "/production/abnormal"], ["生产进度跟踪表", "/production"]]) assert.match(source.dashboard, new RegExp(`label: "${label}", href: "${href.replaceAll("/", "\\/")}"`));
+});
+test("首页仍保持十一模块查询结构", () => {
+  for (const name of ["orderDataPromise", "productionDataPromise", "kittingDataPromise", "outsourceDataPromise", "partialReturnDataPromise", "returnDataPromise", "productionAbnormalDataPromise", "deliverySummaryDataPromise", "deliveryDetailDataPromise", "drawingSummaryDataPromise", "noDrawingDetailDataPromise"]) assert.match(source.dashboard, new RegExp(`const ${name}`));
+});
+test("首页总 Prisma 查询仍为二十六项", () => assert.equal((source.dashboard.match(/prisma\./g) ?? []).length, 26));
+test("首页 dashboard.view 仍早于首个 Prisma 查询", () => assertBefore(source.dashboard, 'requirePagePermission("dashboard.view")', "prisma."));
+test("首页无角色硬编码与剩余查询模块", () => {
+  assert.doesNotMatch(source.dashboard, /role\s*(?:===|!==)|\b(?:ADMIN|OWNER|SALES|PRODUCTION|OUTSOURCE|DELIVERY)\b/);
+  assert.doesNotMatch(source.dashboard, /remainingDashboardData(?:Promise)?/);
+});
 test("业务 API 未引用新权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");
   const { readdir } = await import("node:fs/promises");

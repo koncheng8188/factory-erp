@@ -192,6 +192,17 @@ export default async function DashboardPage() {
   const canViewMissingDrawingDetails = canViewDrawingSummary
     && hasPermission(user.role, "part.view", [])
     && hasPermission(user.role, "order.view", []);
+  const canCreateOrders = canViewOrders && hasPermission(user.role, "order.create", []);
+  const canCreateOutsource = canViewOutsource && hasPermission(user.role, "outsource.create", []);
+  const canCreateReturns = canViewReturns && hasPermission(user.role, "return.create", []);
+  const canCreateDeliveryAction = canViewDeliverySummary && canCreateDelivery;
+  const canViewBackup = hasPermission(user.role, "backup.view", []);
+  const canPrintProductionDaily = hasPermission(user.role, "production.daily.view", [])
+    && hasPermission(user.role, "production.daily.print", []);
+  const canPrintProductionAbnormal = canViewProductionAbnormal
+    && hasPermission(user.role, "production.abnormal.print", []);
+  const canPrintProductionProgress = canViewProduction
+    && hasPermission(user.role, "production.print", []);
   const today = startOfToday();
   const tomorrow = startOfTomorrow(today);
 
@@ -865,19 +876,21 @@ export default async function DashboardPage() {
   ].filter((group) => group.cards.length > 0);
 
   const commonActionLinks = [
-    { label: "新建订单", href: "/orders" },
-    { label: "生产进度", href: "/production" },
-    { label: "新建外发单", href: "/outsourcing/new" },
-    { label: "回厂登记", href: "/returns" },
-    { label: "新建送货单", href: "/delivery/new" },
-    { label: "系统备份", href: "/settings/backup" }
+    ...(canCreateOrders ? [{ label: "新建订单", href: "/orders" }] : []),
+    ...(canViewProduction ? [{ label: "生产进度", href: "/production" }] : []),
+    ...(canCreateOutsource ? [{ label: "新建外发单", href: "/outsourcing/new" }] : []),
+    ...(canCreateReturns ? [{ label: "回厂登记", href: "/returns" }] : []),
+    ...(canCreateDeliveryAction ? [{ label: "新建送货单", href: "/delivery/new" }] : []),
+    ...(canViewBackup ? [{ label: "系统备份", href: "/settings/backup" }] : [])
   ];
 
   const commonPrintLinks = [
-    { label: "生产日报", href: "/production/daily" },
-    { label: "生产异常清单", href: "/production/abnormal" },
-    { label: "生产进度跟踪表", href: "/production" }
+    ...(canPrintProductionDaily ? [{ label: "生产日报", href: "/production/daily" }] : []),
+    ...(canPrintProductionAbnormal ? [{ label: "生产异常清单", href: "/production/abnormal" }] : []),
+    ...(canPrintProductionProgress ? [{ label: "生产进度跟踪表", href: "/production" }] : [])
   ];
+  const hasCommonActions = commonActionLinks.length > 0;
+  const hasCommonPrints = commonPrintLinks.length > 0;
 
   return (
     <div className={pageShell}>
@@ -1094,37 +1107,49 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
-        <section className={`${card} p-5`}>
-          <h2 className={sectionTitle}>常用操作</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {commonActionLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="rounded-lg border border-[#cfd6e1] bg-white px-4 py-3 text-sm font-semibold text-[#344054] shadow-sm transition hover:border-[#98a2b3] hover:bg-[#f6f7f9]"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
-        </section>
+      {hasCommonActions || hasCommonPrints ? (
+        <div
+          className={`grid gap-4 ${
+            hasCommonActions && hasCommonPrints
+              ? "xl:grid-cols-[2fr_1fr]"
+              : "xl:grid-cols-1"
+          }`}
+        >
+          {hasCommonActions ? (
+            <section className={`${card} p-5`}>
+              <h2 className={sectionTitle}>常用操作</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {commonActionLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="rounded-lg border border-[#cfd6e1] bg-white px-4 py-3 text-sm font-semibold text-[#344054] shadow-sm transition hover:border-[#98a2b3] hover:bg-[#f6f7f9]"
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
-        <section className={`${card} p-5`}>
-          <h2 className={sectionTitle}>常用打印</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-            {commonPrintLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="rounded-lg border border-[#cfd6e1] bg-white px-4 py-3 text-sm font-semibold text-[#344054] shadow-sm transition hover:border-[#98a2b3] hover:bg-[#f6f7f9]"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
-        </section>
-      </div>
+          {hasCommonPrints ? (
+            <section className={`${card} p-5`}>
+              <h2 className={sectionTitle}>常用打印</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                {commonPrintLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="rounded-lg border border-[#cfd6e1] bg-white px-4 py-3 text-sm font-semibold text-[#344054] shadow-sm transition hover:border-[#98a2b3] hover:bg-[#f6f7f9]"
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
