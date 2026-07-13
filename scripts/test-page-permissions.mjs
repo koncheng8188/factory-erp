@@ -12,6 +12,8 @@ const files = {
   parts: "src/app/(protected)/parts/page.tsx",
   data: "src/app/(protected)/settings/data/page.tsx",
   returns: "src/app/(protected)/returns/page.tsx",
+  orderDetail: "src/app/(protected)/orders/[id]/page.tsx",
+  orderManager: "src/app/(protected)/orders/[id]/order-detail-manager.tsx",
   outsourceDetail: "src/app/(protected)/outsourcing/[id]/page.tsx",
   returnDetail: "src/app/(protected)/returns/[id]/page.tsx",
   deliveryDetail: "src/app/(protected)/delivery/[id]/page.tsx",
@@ -427,6 +429,61 @@ test("三个详情页均通过页面权限助手而非直接读取 Cookie 或 Se
 });
 test("图纸导航和详情打印入口不使用角色硬编码", () => {
   for (const key of ["layout", "outsourceDetail", "returnDetail", "deliveryDetail"]) assert.doesNotMatch(source[key], /role\s*(?:===|!==)/);
+});
+test("订单详情页导入统一页面权限与权限判断助手", () => {
+  assert.match(source.orderDetail, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.orderDetail, /import \{ hasPermission \} from "@\/lib\/permissions"/);
+});
+test("订单详情页首项权限为 order.view", () => assert.match(source.orderDetail, /const user = await requirePagePermission\("order\.view"\)/));
+test("订单详情页只调用一次 order.view", () => assert.equal(occurrenceCount(source.orderDetail, 'requirePagePermission("order.view")'), 1));
+test("订单详情页 order.view 早于 params", () => assertBefore(source.orderDetail, 'requirePagePermission("order.view")', "await params"));
+test("订单详情页 order.view 早于订单 Prisma 查询", () => assertBefore(source.orderDetail, 'requirePagePermission("order.view")', "prisma.order.findFirst"));
+test("订单详情页 order.view 早于客户 Prisma 查询", () => assertBefore(source.orderDetail, 'requirePagePermission("order.view")', "prisma.customer.findMany"));
+test("订单详情页 order.view 早于 notFound", () => assertBefore(source.orderDetail, 'requirePagePermission("order.view")', "notFound()"));
+test("订单详情页不重复认证或直接读取 Cookie、Session、角色", () => assert.doesNotMatch(source.orderDetail, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i));
+test("订单详情页计算 canViewDrawings", () => assert.match(source.orderDetail, /const canViewDrawings = hasPermission\(user\.role, "drawing\.view", \[\]\)/));
+test("订单详情页计算 canViewOriginalDrawings 的组合权限", () => assert.match(source.orderDetail, /const canViewOriginalDrawings =\s+canViewDrawings && hasPermission\(user\.role, "drawing\.viewOriginal", \[\]\)/));
+test("订单详情页计算 canPrintOrder 的组合权限", () => assert.match(source.orderDetail, /const canPrintOrder =\s+canViewDrawings && hasPermission\(user\.role, "order\.print", \[\]\)/));
+test("订单详情页将三个只读权限标志传入 Client Manager", () => {
+  for (const name of ["canViewDrawings", "canViewOriginalDrawings", "canPrintOrder"]) assert.match(source.orderDetail, new RegExp(`${name}=\\{${name}\\}`));
+});
+test("订单详情页以 canViewDrawings 条件查询 drawings 关系", () => assert.match(source.orderDetail, /drawings: canViewDrawings\s+\? \{/));
+test("订单详情页无图纸查看权限时不查询 drawings", () => assert.match(source.orderDetail, /drawings: canViewDrawings[\s\S]*?: false,/));
+test("订单详情页图纸查询保持既有排序", () => assert.match(source.orderDetail, /orderBy: \[\{ isMain: "desc" \}, \{ version: "desc" \}, \{ createdAt: "desc" \}\]/));
+test("订单详情页图纸 DTO 显式选择当前所需字段", () => {
+  for (const field of ["id", "fileName", "fileType", "originalUrl", "thumbnailUrl", "printThumbnailUrl", "version", "isMain", "status", "uploadStatus", "errorMessage", "remark"]) assert.match(source.orderDetail, new RegExp(`${field}: true`));
+});
+test("订单详情页不展开完整 Prisma drawing 对象", () => assert.doesNotMatch(source.orderDetail, /\.\.\.drawing/));
+test("受保护图纸 URL 仅在可查看图纸分支构造", () => assert.match(source.orderDetail, /drawings: canViewDrawings[\s\S]*?\? part\.drawings\.map[\s\S]*?withProtectedDrawingUrls\(drawing\)[\s\S]*?: \[\]/));
+test("无图纸查看权限时 Client DTO 规范化为空数组", () => assert.match(source.orderDetail, /drawings: canViewDrawings[\s\S]*?: \[\],/));
+test("Client Manager Props 包含三个只读权限标志", () => {
+  for (const name of ["canViewDrawings", "canViewOriginalDrawings", "canPrintOrder"]) assert.match(source.orderManager, new RegExp(`${name}: boolean`));
+});
+test("订单打印入口受 canPrintOrder 条件渲染", () => assert.match(source.orderManager, /\{canPrintOrder \? \(\s+<Link[\s\S]*?\/orders\/\$\{order\.id\}\/print/));
+test("图纸汇总数量受 canViewDrawings 控制", () => assert.match(source.orderManager, /const drawingCount = canViewDrawings\s+\? product\.parts\.reduce/));
+test("部件图纸数量与图纸列受 canViewDrawings 控制", () => {
+  assert.match(source.orderManager, /\{canViewDrawings \? <th className=\{tableHeaderCell\}>图纸<\/th> : null\}/);
+  assert.match(source.orderManager, /\{canViewDrawings \? <td className=\{tableCell\}>\{part\.drawings\.length\}<\/td> : null\}/);
+});
+test("无图纸查看权限显示中性提示", () => assert.match(source.orderManager, /!canViewDrawings \? <div[\s\S]*?>无图纸查看权限<\/div> : null/));
+test("无权限提示与暂无图纸空状态分离", () => assert.match(source.orderManager, /canViewDrawings && part\.drawings\.length === 0/));
+test("图纸表格仅在 canViewDrawings 时渲染", () => assert.match(source.orderManager, /\) : canViewDrawings \? \(/));
+test("原件链接受 canViewOriginalDrawings 控制", () => assert.match(source.orderManager, /\{canViewOriginalDrawings \? \(\s+<a href=\{drawing\.originalUrl\}/));
+test("查看原图入口受 canViewOriginalDrawings 控制", () => assert.match(source.orderManager, /\{canViewOriginalDrawings \? <a className=.*?href=\{drawing\.originalUrl\}/));
+test("无原件权限时缩略图仍直接渲染", () => assert.match(source.orderManager, /\) : renderDrawingPreview\(drawing\)\}/));
+test("图纸写函数和刷新函数仍存在", () => {
+  for (const name of ["uploadDrawings", "updateDrawingStatus", "setMainDrawing", "obsoleteDrawing", "refreshWithMessage"]) assert.match(source.orderManager, new RegExp(`function ${name}|async function ${name}`));
+});
+test("图纸写 API 地址和方法保持不变", () => {
+  assert.match(source.orderManager, /fetch\(`\/api\/parts\/\$\{part\.id\}\/drawings`, \{\s+method: "POST"/);
+  assert.match(source.orderManager, /fetch\(`\/api\/drawings\/\$\{drawing\.id\}`, \{\s+method: "PATCH"/);
+  assert.match(source.orderManager, /fetch\(`\/api\/drawings\/\$\{drawing\.id\}\/main`, \{ method: "POST" \}\)/);
+  assert.match(source.orderManager, /fetch\(`\/api\/drawings\/\$\{drawing\.id\}`, \{ method: "DELETE" \}\)/);
+});
+test("图纸上传中心链接继续保留", () => assert.match(source.orderManager, /\/orders\/\$\{order\.id\}\/drawings\/upload-center/));
+test("订单详情页与 Client Manager 不新增写权限标志", () => {
+  assert.doesNotMatch(source.orderDetail, /can(?:Create|Update|Upload|SetMain|Obsolete)Drawing/);
+  assert.doesNotMatch(source.orderManager, /can(?:Create|Update|Upload|SetMain|Obsolete)Drawing/);
 });
 test("仅既有图纸读取 API 引用权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");

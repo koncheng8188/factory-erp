@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
+import { hasPermission } from "@/lib/permissions";
 import { OrderDetailManager } from "./order-detail-manager";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +13,13 @@ type OrderDetailPageProps = {
 };
 
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
+  const user = await requirePagePermission("order.view");
+  const canViewDrawings = hasPermission(user.role, "drawing.view", []);
+  const canViewOriginalDrawings =
+    canViewDrawings && hasPermission(user.role, "drawing.viewOriginal", []);
+  const canPrintOrder =
+    canViewDrawings && hasPermission(user.role, "order.print", []);
+
   const { id } = await params;
   const [order, customers] = await Promise.all([
     prisma.order.findFirst({
@@ -30,9 +39,25 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             parts: {
               orderBy: { createdAt: "desc" },
               include: {
-                drawings: {
-                  orderBy: [{ isMain: "desc" }, { version: "desc" }, { createdAt: "desc" }]
-                },
+                drawings: canViewDrawings
+                  ? {
+                      orderBy: [{ isMain: "desc" }, { version: "desc" }, { createdAt: "desc" }],
+                      select: {
+                        id: true,
+                        fileName: true,
+                        fileType: true,
+                        originalUrl: true,
+                        thumbnailUrl: true,
+                        printThumbnailUrl: true,
+                        version: true,
+                        isMain: true,
+                        status: true,
+                        uploadStatus: true,
+                        errorMessage: true,
+                        remark: true
+                      }
+                    }
+                  : false,
                 outsourceItems: {
                   select: {
                     outsourceQuantity: true,
@@ -143,17 +168,25 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         missingQuantity: part.missingQuantity,
         status: part.status,
         remark: part.remark,
-        drawings: part.drawings.map((drawing) => ({
-          ...withProtectedDrawingUrls(drawing),
-          fileName: drawing.fileName,
-          fileType: drawing.fileType,
-          version: drawing.version,
-          isMain: drawing.isMain,
-          status: drawing.status,
-          uploadStatus: drawing.uploadStatus,
-          errorMessage: drawing.errorMessage,
-          remark: drawing.remark
-        })),
+        drawings: canViewDrawings
+          ? part.drawings.map((drawing) => {
+              const protectedDrawing = withProtectedDrawingUrls(drawing);
+              return {
+                id: drawing.id,
+                fileName: drawing.fileName,
+                fileType: drawing.fileType,
+                originalUrl: protectedDrawing.originalUrl,
+                thumbnailUrl: protectedDrawing.thumbnailUrl,
+                printThumbnailUrl: protectedDrawing.printThumbnailUrl,
+                version: drawing.version,
+                isMain: drawing.isMain,
+                status: drawing.status,
+                uploadStatus: drawing.uploadStatus,
+                errorMessage: drawing.errorMessage,
+                remark: drawing.remark
+              };
+            })
+          : [],
         outsourceItems: part.outsourceItems.map((item) => ({
           outsourceQuantity: item.outsourceQuantity,
           returnedQuantity: item.returnedQuantity,
@@ -203,7 +236,13 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           返回订单列表
         </Link>
       </div>
-      <OrderDetailManager order={orderDetail} customers={customers} />
+      <OrderDetailManager
+        order={orderDetail}
+        customers={customers}
+        canViewDrawings={canViewDrawings}
+        canViewOriginalDrawings={canViewOriginalDrawings}
+        canPrintOrder={canPrintOrder}
+      />
     </div>
   );
 }

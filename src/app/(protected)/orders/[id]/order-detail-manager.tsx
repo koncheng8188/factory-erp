@@ -321,7 +321,19 @@ function ProgressBadge({ value }: { value: FlowState }) {
   );
 }
 
-export function OrderDetailManager({ order, customers }: { order: OrderDetail; customers: Customer[] }) {
+export function OrderDetailManager({
+  order,
+  customers,
+  canViewDrawings,
+  canViewOriginalDrawings,
+  canPrintOrder
+}: {
+  order: OrderDetail;
+  customers: Customer[];
+  canViewDrawings: boolean;
+  canViewOriginalDrawings: boolean;
+  canPrintOrder: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [orderForm, setOrderForm] = useState<OrderForm>({
@@ -530,7 +542,9 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
           <div className="mt-5 space-y-4">
             {order.products.map((product) => {
               const partCount = product.parts.length;
-              const drawingCount = product.parts.reduce((sum, part) => sum + part.drawings.length, 0);
+              const drawingCount = canViewDrawings
+                ? product.parts.reduce((sum, part) => sum + part.drawings.length, 0)
+                : null;
               const outsourcedTotal = product.parts.reduce((sum, part) => sum + part.outsourcedQuantity, 0);
               const returnedTotal = product.parts.reduce((sum, part) => sum + part.returnedQuantity, 0);
               const missingTotal = product.parts.reduce((sum, part) => sum + part.missingQuantity, 0);
@@ -551,7 +565,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                     </div>
                     <div className="mt-3 grid gap-2 text-xs text-[#475467] sm:grid-cols-3 xl:grid-cols-6">
                       <div className="rounded-md bg-white px-3 py-2">部件数量：<span className="font-semibold text-[#172033]">{partCount}</span></div>
-                      <div className="rounded-md bg-white px-3 py-2">图纸数量：<span className="font-semibold text-[#172033]">{drawingCount}</span></div>
+                      {drawingCount !== null ? <div className="rounded-md bg-white px-3 py-2">图纸数量：<span className="font-semibold text-[#172033]">{drawingCount}</span></div> : null}
                       <div className="rounded-md bg-white px-3 py-2">外发总数：<span className="font-semibold text-[#172033]">{outsourcedTotal}</span></div>
                       <div className="rounded-md bg-white px-3 py-2">回厂总数：<span className="font-semibold text-[#172033]">{returnedTotal}</span></div>
                       <div className="rounded-md bg-white px-3 py-2">未回总数：<span className="font-semibold text-[#172033]">{missingTotal}</span></div>
@@ -566,7 +580,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                           <th className={tableHeaderCell}>部件编号</th>
                           <th className={tableHeaderCell}>部件名称</th>
                           <th className={tableHeaderCell}>总数量</th>
-                          <th className={tableHeaderCell}>图纸</th>
+                           {canViewDrawings ? <th className={tableHeaderCell}>图纸</th> : null}
                           <th className={tableHeaderCell}>已外发</th>
                           <th className={tableHeaderCell}>已回</th>
                           <th className={tableHeaderCell}>未回</th>
@@ -586,7 +600,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                               <td className={tableCell}>{formatEmpty(part.partCode)}</td>
                               <td className={`${tableCell} font-medium text-[#172033]`}>{part.partName}</td>
                               <td className={tableCell}>{part.totalQuantity}</td>
-                              <td className={tableCell}>{part.drawings.length}</td>
+                               {canViewDrawings ? <td className={tableCell}>{part.drawings.length}</td> : null}
                               <td className={tableCell}>{part.outsourcedQuantity}</td>
                               <td className={tableCell}>{part.returnedQuantity}</td>
                               <td className={tableCell}>{part.missingQuantity}</td>
@@ -601,7 +615,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                         })}
                         {product.parts.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-5 text-center text-[#667085]" colSpan={14}>该产品暂无部件。</td>
+                            <td className="px-3 py-5 text-center text-[#667085]" colSpan={canViewDrawings ? 14 : 13}>该产品暂无部件。</td>
                           </tr>
                         ) : null}
                       </tbody>
@@ -1019,9 +1033,9 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
           </form>
         </div>
 
-        {part.drawings.length === 0 ? (
+        {canViewDrawings && part.drawings.length === 0 ? (
           <div className="rounded-md bg-[#fbfcfd] px-3 py-4 text-center text-sm text-[#667085]">暂无图纸</div>
-        ) : (
+        ) : canViewDrawings ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[960px] border-collapse text-left text-sm">
               <thead className="bg-[#eef2f6] text-[#475467]">
@@ -1039,9 +1053,11 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                 {part.drawings.map((drawing) => (
                   <tr key={drawing.id} className="align-top">
                     <td className="border-b border-[#eef2f6] px-3 py-2">
-                      <a href={drawing.originalUrl} target="_blank" rel="noreferrer">
-                        {renderDrawingPreview(drawing)}
-                      </a>
+                      {canViewOriginalDrawings ? (
+                        <a href={drawing.originalUrl} target="_blank" rel="noreferrer">
+                          {renderDrawingPreview(drawing)}
+                        </a>
+                      ) : renderDrawingPreview(drawing)}
                     </td>
                     <td className="border-b border-[#eef2f6] px-3 py-2">
                       <div className="font-medium">{drawing.fileName}</div>
@@ -1057,7 +1073,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
                     <td className="border-b border-[#eef2f6] px-3 py-2">{drawing.uploadStatus}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-2">
                       <div className="flex flex-wrap gap-2">
-                        <a className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={drawing.originalUrl} target="_blank" rel="noreferrer">查看原图</a>
+                        {canViewOriginalDrawings ? <a className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={drawing.originalUrl} target="_blank" rel="noreferrer">查看原图</a> : null}
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-50" disabled={drawing.isMain || drawing.status === "OBSOLETE"} onClick={() => setMainDrawing(drawing)}>
                           设为主图
                         </button>
@@ -1071,7 +1087,7 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
               </tbody>
             </table>
           </div>
-        )}
+        ) : null}
       </div>
     );
   }
@@ -1142,16 +1158,19 @@ export function OrderDetailManager({ order, customers }: { order: OrderDetail; c
           <h1 className="text-2xl font-semibold">订单详情：{order.orderNo}</h1>
           <p className="mt-2 text-sm text-[#667085]">查看订单、客户、产品和部件明细。</p>
         </div>
-        <Link
-          className="inline-flex items-center justify-center rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white !text-white hover:bg-[#344054] hover:text-white hover:!text-white"
-          href={`/orders/${order.id}/print`}
-        >
-          打印生产任务单
-        </Link>
+        {canPrintOrder ? (
+          <Link
+            className="inline-flex items-center justify-center rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white !text-white hover:bg-[#344054] hover:text-white hover:!text-white"
+            href={`/orders/${order.id}/print`}
+          >
+            打印生产任务单
+          </Link>
+        ) : null}
       </section>
 
       {message ? <div className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div> : null}
       {error ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {!canViewDrawings ? <div className="rounded-md border border-[#d8dde6] bg-[#fbfcfd] px-4 py-3 text-sm text-[#667085]">无图纸查看权限</div> : null}
 
       <section className="grid gap-4 xl:grid-cols-2">
         <div className="rounded-md border border-[#d8dde6] bg-white p-5">
