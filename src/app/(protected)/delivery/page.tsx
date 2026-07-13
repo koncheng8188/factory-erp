@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import Link from "next/link";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { formatDisplayDate } from "@/lib/delivery";
 import { deliveryStatusOptions, getDeliveryStatusLabel, isDeliveryStatus } from "@/lib/delivery-status";
@@ -30,6 +31,8 @@ function nextDate(date: Date) {
 }
 
 export default async function DeliveryPage({ searchParams }: DeliveryPageProps) {
+  await requirePagePermission("delivery.view");
+
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
   const rawStatus = firstQueryValue(params?.status).trim();

@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { isOutsourceStatus } from "@/lib/outsource-status";
 import { isOutsourceType } from "@/lib/outsource";
 import { prisma } from "@/lib/prisma";
@@ -40,6 +41,8 @@ function earliestDate(dates: Date[]) {
 }
 
 export default async function OutsourcingPage({ searchParams }: OutsourcingPageProps) {
+  await requirePagePermission("outsource.view");
+
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
   const rawStatus = firstQueryValue(params?.status).trim();

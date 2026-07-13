@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { isOrderStatus } from "@/lib/order-status";
 import { prisma } from "@/lib/prisma";
 import { OrderManager } from "./order-manager";
@@ -29,6 +30,8 @@ function nextDate(date: Date) {
 }
 
 export default async function OrdersPage({ searchParams }: OrdersPageProps) {
+  await requirePagePermission("order.view");
+
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
   const rawStatus = firstQueryValue(params?.status).trim();

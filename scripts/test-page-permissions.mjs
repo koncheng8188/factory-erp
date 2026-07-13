@@ -12,6 +12,10 @@ const files = {
   parts: "src/app/(protected)/parts/page.tsx",
   data: "src/app/(protected)/settings/data/page.tsx",
   returns: "src/app/(protected)/returns/page.tsx",
+  customers: "src/app/(protected)/customers/page.tsx",
+  orders: "src/app/(protected)/orders/page.tsx",
+  outsourcing: "src/app/(protected)/outsourcing/page.tsx",
+  delivery: "src/app/(protected)/delivery/page.tsx",
   orderDetail: "src/app/(protected)/orders/[id]/page.tsx",
   orderManager: "src/app/(protected)/orders/[id]/order-detail-manager.tsx",
   production: "src/app/(protected)/production/page.tsx",
@@ -49,6 +53,38 @@ function sourceSlice(content, start, end) {
   assert.notEqual(startIndex, -1, `未找到 ${start}`);
   assert.notEqual(endIndex, -1, `未找到 ${end}`);
   return content.slice(startIndex, endIndex);
+}
+
+function functionBody(content, declaration) {
+  const declarationIndex = content.indexOf(declaration);
+  assert.notEqual(declarationIndex, -1, `未找到函数声明：${declaration}`);
+
+  const parameterStart = content.indexOf("(", declarationIndex);
+  assert.notEqual(parameterStart, -1, `未找到函数参数：${declaration}`);
+
+  let parameterDepth = 0;
+  let parameterEnd = -1;
+  for (let index = parameterStart; index < content.length; index += 1) {
+    if (content[index] === "(") parameterDepth += 1;
+    if (content[index] === ")") parameterDepth -= 1;
+    if (parameterDepth === 0) {
+      parameterEnd = index;
+      break;
+    }
+  }
+  assert.notEqual(parameterEnd, -1, `函数参数未闭合：${declaration}`);
+
+  const bodyStart = content.indexOf("{", parameterEnd);
+  assert.notEqual(bodyStart, -1, `未找到函数体：${declaration}`);
+
+  let depth = 0;
+  for (let index = bodyStart; index < content.length; index += 1) {
+    if (content[index] === "{") depth += 1;
+    if (content[index] === "}") depth -= 1;
+    if (depth === 0) return content.slice(bodyStart, index + 1);
+  }
+
+  assert.fail(`函数体未闭合：${declaration}`);
 }
 
 function menuEntry(label) {
@@ -593,6 +629,65 @@ test("生产同页打印不使用 CSS 隐藏官方按钮替代权限分支", () 
   assert.doesNotMatch(source.productionDaily, /canPrintDaily[\s\S]{0,200}className=.*(?:hidden|invisible)/);
   assert.doesNotMatch(source.productionAbnormal, /canPrintAbnormal[\s\S]{0,200}className=.*(?:hidden|invisible)/);
 });
+const customerPageBody = functionBody(source.customers, "export default async function CustomersPage");
+const ordersPageBody = functionBody(source.orders, "export default async function OrdersPage");
+const outsourcingPageBody = functionBody(source.outsourcing, "export default async function OutsourcingPage");
+const deliveryPageBody = functionBody(source.delivery, "export default async function DeliveryPage");
+
+test("客户列表导入页面权限助手", () => assert.match(source.customers, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
+test("客户列表只要求一次 customer.view", () => assert.equal(occurrenceCount(customerPageBody, 'requirePagePermission("customer.view")'), 1));
+test("客户列表鉴权早于 Prisma 查询", () => assertBefore(customerPageBody, 'requirePagePermission("customer.view")', "prisma.customer.findMany"));
+test("客户列表不重复认证、不读取会话且无角色硬编码", () => assert.doesNotMatch(customerPageBody, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i));
+test("客户列表保留原客户查询、排序和订单数量", () => {
+  assert.match(customerPageBody, /prisma\.customer\.findMany/);
+  assert.match(customerPageBody, /orderBy: \{ createdAt: "desc" \}/);
+  assert.match(customerPageBody, /_count: \{ select: \{ orders: true \} \}/);
+});
+test("客户列表未提前接入写权限", () => assert.doesNotMatch(customerPageBody, /customer\.(?:create|update|delete)/));
+
+test("订单列表导入页面权限助手", () => assert.match(source.orders, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
+test("订单列表只要求一次 order.view", () => assert.equal(occurrenceCount(ordersPageBody, 'requirePagePermission("order.view")'), 1));
+test("订单列表鉴权早于参数和全部 Prisma 查询", () => {
+  assertBefore(ordersPageBody, 'requirePagePermission("order.view")', "await searchParams");
+  assertBefore(ordersPageBody, 'requirePagePermission("order.view")', "prisma.order.findMany");
+  assertBefore(ordersPageBody, 'requirePagePermission("order.view")', "prisma.customer.findMany");
+});
+test("订单列表不重复认证、不读取会话且无角色硬编码", () => assert.doesNotMatch(ordersPageBody, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i));
+test("订单列表保留筛选、排序和详情 Manager", () => {
+  assert.match(ordersPageBody, /where\.OR/);
+  assert.match(ordersPageBody, /orderBy: \{ createdAt: "desc" \}/);
+  assert.match(ordersPageBody, /<OrderManager/);
+});
+test("订单列表未提前接入写或导入权限", () => assert.doesNotMatch(ordersPageBody, /order\.(?:create|update|delete|importProducts)/));
+
+test("外发列表导入页面权限助手", () => assert.match(source.outsourcing, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
+test("外发列表只要求一次 outsource.view", () => assert.equal(occurrenceCount(outsourcingPageBody, 'requirePagePermission("outsource.view")'), 1));
+test("外发列表鉴权早于参数和 Prisma 查询", () => {
+  assertBefore(outsourcingPageBody, 'requirePagePermission("outsource.view")', "await searchParams");
+  assertBefore(outsourcingPageBody, 'requirePagePermission("outsource.view")', "prisma.outsourceOrder.findMany");
+});
+test("外发列表不重复认证、不读取会话且无角色硬编码", () => assert.doesNotMatch(outsourcingPageBody, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i));
+test("外发列表保留原筛选、排序和列表 Manager", () => {
+  assert.match(outsourcingPageBody, /andConditions\.push/);
+  assert.match(outsourcingPageBody, /orderBy: \{ createdAt: "desc" \}/);
+  assert.match(outsourcingPageBody, /<OutsourcingManager/);
+});
+test("外发列表未提前接入创建权限", () => assert.doesNotMatch(outsourcingPageBody, /outsource\.create/));
+
+test("送货列表导入页面权限助手", () => assert.match(source.delivery, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
+test("送货列表只要求一次 delivery.view", () => assert.equal(occurrenceCount(deliveryPageBody, 'requirePagePermission("delivery.view")'), 1));
+test("送货列表鉴权早于参数和 Prisma 查询", () => {
+  assertBefore(deliveryPageBody, 'requirePagePermission("delivery.view")', "await searchParams");
+  assertBefore(deliveryPageBody, 'requirePagePermission("delivery.view")', "prisma.deliveryOrder.findMany");
+});
+test("送货列表不重复认证、不读取会话且无角色硬编码", () => assert.doesNotMatch(deliveryPageBody, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i));
+test("送货列表保留筛选、排序和详情链接", () => {
+  assert.match(deliveryPageBody, /andConditions\.push/);
+  assert.match(deliveryPageBody, /orderBy: \{ createdAt: "desc" \}/);
+  assert.match(deliveryPageBody, /href=\{`\/delivery\/\$\{deliveryOrder\.id\}`\}/);
+});
+test("送货列表未提前接入创建或写权限", () => assert.doesNotMatch(deliveryPageBody, /delivery\.(?:create|update|delete)/));
+
 test("仅已批准的读取 API 引用权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");
   const permittedRoutes = new Set([
