@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeOptional, parseDate } from "@/lib/outsource";
 import { syncProductStatusFromParts } from "@/lib/product-progress";
 import { resolveOutsourceItemStatus, resolvePartStatus } from "@/lib/returns";
+import { requireApiPermission } from "@/lib/auth/authorization";
 import { requireApiUser } from "@/lib/auth/api-user";
 
 type RawReturnItem = {
@@ -29,7 +30,7 @@ const deliveryReadyProductStatusList: ProductStatus[] = ["WAIT_DELIVERY", "PARTI
 const protectedDeliveryOrderStatusList: OrderStatus[] = ["ABNORMAL", "PARTIAL_DELIVERED", "COMPLETED"];
 
 export async function GET() {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiPermission("return.view");
   if (!authResult.ok) return authResult.response;
   try {
     const returns = await prisma.outsourceReturn.findMany({

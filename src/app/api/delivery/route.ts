@@ -8,6 +8,7 @@ import {
   normalizeOptional,
   parseDate
 } from "@/lib/delivery";
+import { requireApiPermission } from "@/lib/auth/authorization";
 import { requireApiUser } from "@/lib/auth/api-user";
 
 type RawDeliveryItem = {
@@ -36,7 +37,7 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export async function GET() {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiPermission("delivery.view");
   if (!authResult.ok) return authResult.response;
   try {
     const deliveryOrders = await prisma.deliveryOrder.findMany({

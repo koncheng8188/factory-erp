@@ -593,13 +593,17 @@ test("生产同页打印不使用 CSS 隐藏官方按钮替代权限分支", () 
   assert.doesNotMatch(source.productionDaily, /canPrintDaily[\s\S]{0,200}className=.*(?:hidden|invisible)/);
   assert.doesNotMatch(source.productionAbnormal, /canPrintAbnormal[\s\S]{0,200}className=.*(?:hidden|invisible)/);
 });
-test("仅既有图纸读取 API 引用权限助手", async () => {
+test("仅已批准的读取 API 引用权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");
   const permittedRoutes = new Set([
     "drawings/[id]/file/route.ts",
     "drawings/[id]/thumbnail/route.ts",
     "drawings/[id]/print-thumbnail/route.ts",
-    "parts/[id]/drawings/route.ts"
+    "parts/[id]/drawings/route.ts",
+    "delivery/route.ts",
+    "delivery/[id]/route.ts",
+    "outsourcing/route.ts",
+    "returns/route.ts"
   ]);
   const { readdir } = await import("node:fs/promises");
   async function scan(directory) {

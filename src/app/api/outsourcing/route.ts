@@ -9,6 +9,7 @@ import {
   parseDate,
   pickOutsourceDrawing
 } from "@/lib/outsource";
+import { requireApiPermission } from "@/lib/auth/authorization";
 import { requireApiUser } from "@/lib/auth/api-user";
 
 function parseQuantity(value: unknown) {
@@ -29,7 +30,7 @@ const blockedOutsourceProductStatuses = new Set<ProductStatus>(blockedOutsourceP
 const blockedOutsourceOrderStatuses = new Set<OrderStatus>(blockedOutsourceOrderStatusList);
 
 export async function GET() {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiPermission("outsource.view");
   if (!authResult.ok) return authResult.response;
   try {
     const outsourceOrders = await prisma.outsourceOrder.findMany({

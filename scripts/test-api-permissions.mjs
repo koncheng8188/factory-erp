@@ -64,6 +64,13 @@ const source = {
   drawingWrite: await readSource("src", "app", "api", "drawings", "[id]", "route.ts"),
   drawingMain: await readSource("src", "app", "api", "drawings", "[id]", "main", "route.ts"),
   fileAccess: await readSource("src", "lib", "drawing-file-access.ts"),
+  delivery: await readSource("src", "app", "api", "delivery", "route.ts"),
+  deliveryDetail: await readSource("src", "app", "api", "delivery", "[id]", "route.ts"),
+  outsourcing: await readSource("src", "app", "api", "outsourcing", "route.ts"),
+  returns: await readSource("src", "app", "api", "returns", "route.ts"),
+  kitting: await readSource("src", "app", "api", "kitting", "[productId]", "route.ts"),
+  productParts: await readSource("src", "app", "api", "products", "[id]", "parts", "route.ts"),
+  backupList: await readSource("src", "app", "api", "system", "backup", "list", "route.ts"),
   self: await readSource("scripts", "test-api-permissions.mjs")
 };
 
@@ -72,6 +79,13 @@ const fileGet = functionBody(source.file, "GET");
 const printThumbnailGet = functionBody(source.printThumbnail, "GET");
 const partsGet = functionBody(source.partsDrawings, "GET");
 const partsPost = functionBody(source.partsDrawings, "POST");
+const deliveryGet = functionBody(source.delivery, "GET");
+const deliveryPost = functionBody(source.delivery, "POST");
+const deliveryDetailGet = functionBody(source.deliveryDetail, "GET");
+const outsourcingGet = functionBody(source.outsourcing, "GET");
+const outsourcingPost = functionBody(source.outsourcing, "POST");
+const returnsGet = functionBody(source.returns, "GET");
+const returnsPost = functionBody(source.returns, "POST");
 
 test("thumbnail route 导入统一 API 权限助手", () => {
   assert.match(source.thumbnail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
@@ -321,4 +335,100 @@ test("原件 file 继续使用 drawing.viewOriginal", () => {
 test("图纸写接口仍未接入 C2 权限", () => {
   assert.doesNotMatch(source.drawingWrite, /requireApiPermission/);
   assert.doesNotMatch(source.drawingMain, /requireApiPermission/);
+});
+
+test("送货列表 route 导入统一 API 权限助手", () => {
+  assert.match(source.delivery, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+});
+test("送货列表 GET 只要求 delivery.view", () => {
+  assert.equal(occurrenceCount(deliveryGet, 'requireApiPermission("delivery.view")'), 1);
+  assert.doesNotMatch(deliveryGet, /delivery\.create/);
+});
+test("送货列表 GET 鉴权早于 Prisma 和响应构造", () => {
+  assertBefore(deliveryGet, 'requireApiPermission("delivery.view")', "prisma.deliveryOrder.findMany");
+  assertBefore(deliveryGet, 'requireApiPermission("delivery.view")', "NextResponse.json({ deliveryOrders })");
+});
+test("送货列表 GET 权限失败立即返回原响应", () => {
+  assert.match(deliveryGet, /if \(!authResult\.ok\) return authResult\.response/);
+});
+test("送货列表 POST 保持 requireApiUser 认证", () => {
+  assert.match(deliveryPost, /requireApiUser\(\)/);
+  assert.doesNotMatch(deliveryPost, /requireApiPermission/);
+});
+test("送货列表 POST 保留事务和数量联动", () => {
+  assert.match(deliveryPost, /prisma\.\$transaction/);
+  assert.match(deliveryPost, /missingDeliveryQuantity/);
+  assert.match(deliveryPost, /tx\.product\.update/);
+});
+test("送货详情 route 导入统一 API 权限助手", () => {
+  assert.match(source.deliveryDetail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+});
+test("送货详情 GET 只要求一次 delivery.view", () => {
+  assert.equal(occurrenceCount(deliveryDetailGet, 'requireApiPermission("delivery.view")'), 1);
+  assert.doesNotMatch(deliveryDetailGet, /requireApiUser|delivery\.create/);
+});
+test("送货详情 GET 鉴权早于 params 和 Prisma", () => {
+  assertBefore(deliveryDetailGet, 'requireApiPermission("delivery.view")', "await context.params");
+  assertBefore(deliveryDetailGet, 'requireApiPermission("delivery.view")', "prisma.deliveryOrder.findFirst");
+});
+test("送货详情 GET 鉴权早于 404 判断并保留原 404", () => {
+  assertBefore(deliveryDetailGet, 'requireApiPermission("delivery.view")', "if (!deliveryOrder)");
+  assert.match(deliveryDetailGet, /送货单不存在。[\s\S]*?status: 404/);
+});
+test("外发列表 route 导入统一 API 权限助手", () => {
+  assert.match(source.outsourcing, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+});
+test("外发列表 GET 只要求 outsource.view", () => {
+  assert.equal(occurrenceCount(outsourcingGet, 'requireApiPermission("outsource.view")'), 1);
+  assert.doesNotMatch(outsourcingGet, /outsource\.create/);
+});
+test("外发列表 GET 鉴权早于 Prisma 和响应构造", () => {
+  assertBefore(outsourcingGet, 'requireApiPermission("outsource.view")', "prisma.outsourceOrder.findMany");
+  assertBefore(outsourcingGet, 'requireApiPermission("outsource.view")', "NextResponse.json({ outsourceOrders })");
+});
+test("外发列表 POST 保持 requireApiUser 认证", () => {
+  assert.match(outsourcingPost, /requireApiUser\(\)/);
+  assert.doesNotMatch(outsourcingPost, /requireApiPermission/);
+});
+test("外发列表 POST 保留编号、事务和数量联动", () => {
+  assert.match(outsourcingPost, /prisma\.\$transaction/);
+  assert.match(outsourcingPost, /const outsourceNo =/);
+  assert.match(outsourcingPost, /outsourcedQuantity/);
+});
+test("回厂列表 route 导入统一 API 权限助手", () => {
+  assert.match(source.returns, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+});
+test("回厂列表 GET 只要求 return.view", () => {
+  assert.equal(occurrenceCount(returnsGet, 'requireApiPermission("return.view")'), 1);
+  assert.doesNotMatch(returnsGet, /return\.create/);
+});
+test("回厂列表 GET 鉴权早于 Prisma 和响应构造", () => {
+  assertBefore(returnsGet, 'requireApiPermission("return.view")', "prisma.outsourceReturn.findMany");
+  assertBefore(returnsGet, 'requireApiPermission("return.view")', "NextResponse.json({ returns })");
+});
+test("回厂列表 POST 保持 requireApiUser 认证", () => {
+  assert.match(returnsPost, /requireApiUser\(\)/);
+  assert.doesNotMatch(returnsPost, /requireApiPermission/);
+});
+test("回厂列表 POST 保留事务与数量状态联动", () => {
+  assert.match(returnsPost, /prisma\.\$transaction/);
+  assert.match(returnsPost, /returnedQuantity/);
+  assert.match(returnsPost, /missingQuantity/);
+});
+test("四个新增 GET 均无角色、Cookie 或 Session 直读", () => {
+  for (const handler of [deliveryGet, deliveryDetailGet, outsourcingGet, returnsGet]) {
+    assert.doesNotMatch(handler, /cookies\(|document\.cookie|session|role\s*(?:===|!==)/i);
+  }
+});
+test("四个新增 GET 均保持统一权限失败返回", () => {
+  for (const handler of [deliveryGet, deliveryDetailGet, outsourcingGet, returnsGet]) {
+    assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/);
+  }
+});
+test("本阶段未虚假接入齐套和产品部件读取 API", () => {
+  assert.doesNotMatch(source.kitting, /requireApiPermission/);
+  assert.doesNotMatch(source.productParts, /requireApiPermission/);
+});
+test("本阶段未虚假接入备份读取 API", () => {
+  assert.doesNotMatch(source.backupList, /requireApiPermission/);
 });
