@@ -71,6 +71,8 @@ const source = {
   kitting: await readSource("src", "app", "api", "kitting", "[productId]", "route.ts"),
   productParts: await readSource("src", "app", "api", "products", "[id]", "parts", "route.ts"),
   backupList: await readSource("src", "app", "api", "system", "backup", "list", "route.ts"),
+  importTemplate: await readSource("src", "app", "api", "imports", "excel", "template", "route.ts"),
+  orderImportTemplate: await readSource("src", "app", "api", "orders", "[id]", "import-products", "template", "route.ts"),
   self: await readSource("scripts", "test-api-permissions.mjs")
 };
 
@@ -86,6 +88,10 @@ const outsourcingGet = functionBody(source.outsourcing, "GET");
 const outsourcingPost = functionBody(source.outsourcing, "POST");
 const returnsGet = functionBody(source.returns, "GET");
 const returnsPost = functionBody(source.returns, "POST");
+const kittingGet = functionBody(source.kitting, "GET");
+const kittingPost = functionBody(source.kitting, "POST");
+const productPartsGet = functionBody(source.productParts, "GET");
+const productPartsPost = functionBody(source.productParts, "POST");
 
 test("thumbnail route 导入统一 API 权限助手", () => {
   assert.match(source.thumbnail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
@@ -425,10 +431,86 @@ test("四个新增 GET 均保持统一权限失败返回", () => {
     assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/);
   }
 });
-test("本阶段未虚假接入齐套和产品部件读取 API", () => {
-  assert.doesNotMatch(source.kitting, /requireApiPermission/);
-  assert.doesNotMatch(source.productParts, /requireApiPermission/);
+test("齐套和产品部件 GET 不会额外接入写权限", () => {
+  assert.doesNotMatch(kittingGet, /kitting\.execute/);
+  assert.doesNotMatch(productPartsGet, /product\.update|part\.create/);
 });
 test("本阶段未虚假接入备份读取 API", () => {
   assert.doesNotMatch(source.backupList, /requireApiPermission/);
+});
+
+test("齐套 route 导入统一 API 权限助手", () => {
+  assert.match(source.kitting, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+});
+test("齐套 GET 只要求一次 kitting.view", () => {
+  assert.equal(occurrenceCount(kittingGet, 'requireApiPermission("kitting.view")'), 1);
+});
+test("齐套 GET 不额外要求产品、部件或图纸查看权限", () => {
+  assert.doesNotMatch(kittingGet, /product\.view|part\.view|drawing\.view/);
+});
+test("齐套 GET 鉴权早于 params", () => {
+  assertBefore(kittingGet, 'requireApiPermission("kitting.view")', "await context.params");
+});
+test("齐套 GET 鉴权早于齐套查询和原 404 判断", () => {
+  assertBefore(kittingGet, 'requireApiPermission("kitting.view")', "getProductKitting(prisma, productId)");
+  assertBefore(kittingGet, 'requireApiPermission("kitting.view")', "if (!kitting)");
+  assert.match(kittingGet, /产品不存在。[\s\S]*?status: 404/);
+});
+test("齐套 GET 保持统一权限失败返回", () => {
+  assert.match(kittingGet, /if \(!authResult\.ok\) return authResult\.response/);
+});
+test("齐套 POST 保持 requireApiUser 认证", () => {
+  assert.match(kittingPost, /requireApiUser\(\)/);
+  assert.doesNotMatch(kittingPost, /requireApiPermission/);
+});
+test("齐套 POST 保留事务与刷新逻辑", () => {
+  assert.match(kittingPost, /prisma\.\$transaction/);
+  assert.match(kittingPost, /refreshProductKittingStatus/);
+});
+test("产品部件 route 导入全部权限助手", () => {
+  assert.match(source.productParts, /import \{ requireApiAllPermissions \} from "@\/lib\/auth\/authorization"/);
+});
+test("产品部件 GET 精确要求 product.view 和 part.view", () => {
+  assert.match(productPartsGet, /requireApiAllPermissions\(\[\s*"product\.view",\s*"part\.view"\s*\]\)/);
+});
+test("产品部件 GET 不额外要求第三个业务权限", () => {
+  assert.doesNotMatch(productPartsGet, /order\.view|drawing\.view|product\.update|part\.create/);
+});
+test("产品部件 GET 多权限鉴权早于 params 和 Prisma", () => {
+  assertBefore(productPartsGet, "requireApiAllPermissions", "await context.params");
+  assertBefore(productPartsGet, "requireApiAllPermissions", "prisma.productPart.findMany");
+});
+test("产品部件 GET 保持空数组语义而不新增产品查询或 404", () => {
+  assert.doesNotMatch(productPartsGet, /prisma\.product\.findUnique|status: 404/);
+  assert.match(productPartsGet, /NextResponse\.json\(\{ parts \}\)/);
+});
+test("产品部件 GET 保持统一权限失败返回", () => {
+  assert.match(productPartsGet, /if \(!authResult\.ok\) return authResult\.response/);
+});
+test("产品部件 POST 保持 requireApiUser 认证", () => {
+  assert.match(productPartsPost, /requireApiUser\(\)/);
+  assert.doesNotMatch(productPartsPost, /requireApiAllPermissions/);
+});
+test("产品部件 POST 保留请求体、数量计算与创建逻辑", () => {
+  assert.match(productPartsPost, /await request\.json\(\)/);
+  assert.match(productPartsPost, /calculatePartTotalQuantity/);
+  assert.match(productPartsPost, /prisma\.productPart\.create/);
+});
+test("新读取 API 测试使用独立 GET 函数体", () => {
+  assert.doesNotMatch(kittingGet, /export async function POST/);
+  assert.doesNotMatch(productPartsGet, /export async function POST/);
+});
+test("导入模板 API 仍未提前接入权限助手", () => {
+  assert.doesNotMatch(source.importTemplate, /requireApi(?:Any|All)?Permission/);
+  assert.doesNotMatch(source.orderImportTemplate, /requireApi(?:Any|All)?Permission/);
+});
+test("API 权限静态测试自身不连接数据库或写文件", () => {
+  const forbiddenDatabase = new RegExp(`Prisma${"Client"}|@/lib/${"prisma"}`);
+  const forbiddenWrites = [
+    new RegExp(`w${"rite"}File\\s*\\(`),
+    new RegExp(`a${"ppend"}File\\s*\\(`),
+    new RegExp(`m${"kdir"}\\s*\\(`)
+  ];
+  assert.doesNotMatch(source.self, forbiddenDatabase);
+  for (const pattern of forbiddenWrites) assert.doesNotMatch(source.self, pattern);
 });

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { getProductKitting, refreshProductKittingStatus } from "@/lib/kitting";
 import { requireApiUser } from "@/lib/auth/api-user";
@@ -12,7 +13,7 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export async function GET(_request: Request, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiPermission("kitting.view");
   if (!authResult.ok) return authResult.response;
   try {
     const { productId } = await context.params;

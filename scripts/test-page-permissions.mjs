@@ -603,7 +603,9 @@ test("仅已批准的读取 API 引用权限助手", async () => {
     "delivery/route.ts",
     "delivery/[id]/route.ts",
     "outsourcing/route.ts",
-    "returns/route.ts"
+    "returns/route.ts",
+    "kitting/[productId]/route.ts",
+    "products/[id]/parts/route.ts"
   ]);
   const { readdir } = await import("node:fs/promises");
   async function scan(directory) {
@@ -613,7 +615,7 @@ test("仅已批准的读取 API 引用权限助手", async () => {
       if (entry.isFile() && entry.name === "route.ts") {
         const content = await readFile(target, "utf8");
         const relativePath = path.relative(apiRoot, target).replaceAll("\\", "/");
-        if (permittedRoutes.has(relativePath)) assert.match(content, /requireApiPermission/);
+        if (permittedRoutes.has(relativePath)) assert.match(content, /requireApi(?:Any|All)?Permission/);
         else assert.doesNotMatch(content, /requireApi(?:Any|All)?Permission/);
       }
     }
