@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { withProtectedOutsourceDrawingUrls } from "@/lib/drawing-file-url";
 import { formatDisplayDate, outsourceTypeLabels, type OutsourceTypeValue } from "@/lib/outsource";
+import { hasPermission } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,11 @@ function renderDrawingPreview(item: { thumbnailUrl: string | null; originalUrl: 
 }
 
 export default async function OutsourceDetailPage({ params }: OutsourceDetailPageProps) {
+  const user = await requirePagePermission("outsource.view");
+  const canPrintOutsource =
+    hasPermission(user.role, "outsource.print", []) &&
+    hasPermission(user.role, "drawing.view", []);
+
   const { id } = await params;
   const outsourceOrder = await prisma.outsourceOrder.findFirst({
     where: {
@@ -89,13 +96,15 @@ export default async function OutsourceDetailPage({ params }: OutsourceDetailPag
           <p className="mt-2 text-sm text-[#667085]">查看外发单基本信息、部件外发明细和回厂记录。</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <Link
-            href={`/outsourcing/${outsourceOrder.id}/print`}
-            className="inline-flex items-center justify-center rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white !text-white hover:bg-[#344054] hover:text-white hover:!text-white"
-            style={{ color: "#ffffff" }}
-          >
-            打印外发电镀单
-          </Link>
+          {canPrintOutsource ? (
+            <Link
+              href={`/outsourcing/${outsourceOrder.id}/print`}
+              className="inline-flex items-center justify-center rounded-lg bg-[#172033] px-4 py-2 text-sm font-semibold text-white !text-white hover:bg-[#344054] hover:text-white hover:!text-white"
+              style={{ color: "#ffffff" }}
+            >
+              打印外发电镀单
+            </Link>
+          ) : null}
           <Link
             href={`/returns/new?outsourceOrderId=${outsourceOrder.id}`}
             className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"

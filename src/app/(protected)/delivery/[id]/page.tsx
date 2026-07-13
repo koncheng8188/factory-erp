@@ -4,6 +4,7 @@ import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { formatDisplayDate } from "@/lib/delivery";
 import { getDeliveryStatusLabel } from "@/lib/delivery-status";
+import { hasPermission } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,8 @@ type DeliveryDetailPageProps = {
 };
 
 export default async function DeliveryDetailPage({ params }: DeliveryDetailPageProps) {
-  await requirePagePermission("delivery.view");
+  const user = await requirePagePermission("delivery.view");
+  const canPrintDelivery = hasPermission(user.role, "delivery.print", []);
 
   const { id } = await params;
   const deliveryOrder = await prisma.deliveryOrder.findFirst({
@@ -44,13 +46,15 @@ export default async function DeliveryDetailPage({ params }: DeliveryDetailPageP
         <Link className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100" href={`/orders/${deliveryOrder.orderId}`}>
           查看关联订单
         </Link>
-        <Link
-          className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white !text-white shadow-sm hover:bg-slate-700 hover:text-white hover:!text-white focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
-          href={`/delivery/${deliveryOrder.id}/print`}
-          style={{ color: "#ffffff" }}
-        >
-          打印送货单
-        </Link>
+        {canPrintDelivery ? (
+          <Link
+            className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white !text-white shadow-sm hover:bg-slate-700 hover:text-white hover:!text-white focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+            href={`/delivery/${deliveryOrder.id}/print`}
+            style={{ color: "#ffffff" }}
+          >
+            打印送货单
+          </Link>
+        ) : null}
       </div>
 
       <section>
