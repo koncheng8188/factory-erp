@@ -22,7 +22,7 @@ const menuGroups = [
   { title: "外发回厂", items: [{ href: "/outsourcing", label: "外发电镀", permission: "outsource.view" }, { href: "/returns", label: "回厂登记", permission: "return.view" }] },
   { title: "送货出库", items: [{ href: "/delivery", label: "送货管理", permission: "delivery.view" }] },
   { title: "报表打印", items: [{ href: "/production/daily", label: "生产日报", permission: "production.daily.view" }, { href: "/production/abnormal", label: "生产异常", permission: "production.abnormal.view" }] },
-  { title: "系统工具", items: [{ href: "/imports/excel", label: "Excel 导入", permission: "import.view" }, { href: "/settings/data", label: "数据管理", permission: "dataManagement.view" }, { href: "/settings/backup", label: "系统备份" }] }
+  { title: "系统工具", items: [{ href: "/imports/excel", label: "Excel 导入", permission: "import.view" }, { href: "/settings/data", label: "数据管理", permission: "dataManagement.view" }, { href: "/settings/backup", label: "系统备份", permission: "backup.view" }] }
 ] as const satisfies readonly NavigationGroup[];
 
 function canViewNavigationItem(role: Parameters<typeof hasPermission>[0], item: NavigationItem) {
