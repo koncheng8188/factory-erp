@@ -29,7 +29,17 @@ const emptyForm: CustomerForm = {
   remark: ""
 };
 
-export function CustomerManager({ customers }: { customers: Customer[] }) {
+export function CustomerManager({
+  customers,
+  canCreateCustomer,
+  canUpdateCustomer,
+  canDeleteCustomer
+}: {
+  customers: Customer[];
+  canCreateCustomer: boolean;
+  canUpdateCustomer: boolean;
+  canDeleteCustomer: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -44,6 +54,7 @@ export function CustomerManager({ customers }: { customers: Customer[] }) {
   }
 
   function startEdit(customer: Customer) {
+    if (!canUpdateCustomer) return;
     setEditingId(customer.id);
     setForm({
       name: customer.name,
@@ -65,6 +76,10 @@ export function CustomerManager({ customers }: { customers: Customer[] }) {
     event.preventDefault();
     setMessage("");
     setError("");
+
+    if ((isEditing && !canUpdateCustomer) || (!isEditing && !canCreateCustomer)) {
+      return;
+    }
 
     if (!form.name.trim()) {
       setError("客户名称不能为空。");
@@ -91,6 +106,7 @@ export function CustomerManager({ customers }: { customers: Customer[] }) {
   }
 
   async function deleteCustomer(customer: Customer) {
+    if (!canDeleteCustomer) return;
     if (!window.confirm(`确认删除客户“${customer.name}”吗？`)) {
       return;
     }
@@ -116,9 +132,10 @@ export function CustomerManager({ customers }: { customers: Customer[] }) {
         <p className="mt-2 text-sm text-[#667085]">维护客户资料、联系人、电话和地址。</p>
       </section>
 
-      <section className="rounded-md border border-[#d8dde6] bg-white p-5">
-        <h2 className="text-lg font-semibold">{isEditing ? "编辑客户" : "新增客户"}</h2>
-        <form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={submitForm}>
+      {(isEditing ? canUpdateCustomer : canCreateCustomer) ? (
+        <section className="rounded-md border border-[#d8dde6] bg-white p-5">
+          <h2 className="text-lg font-semibold">{isEditing ? "编辑客户" : "新增客户"}</h2>
+          <form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={submitForm}>
           <label className="block text-sm font-medium">
             客户名称 <span className="text-red-600">*</span>
             <input className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.name} onChange={(event) => updateField("name", event.target.value)} />
@@ -149,10 +166,11 @@ export function CustomerManager({ customers }: { customers: Customer[] }) {
               </button>
             ) : null}
           </div>
-        </form>
-        {message ? <div className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div> : null}
-        {error ? <div className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
-      </section>
+          </form>
+          {message ? <div className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div> : null}
+          {error ? <div className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        </section>
+      ) : null}
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
         <h2 className="text-lg font-semibold">客户列表</h2>
@@ -180,12 +198,16 @@ export function CustomerManager({ customers }: { customers: Customer[] }) {
                   <td className="border-b border-[#eef2f6] px-3 py-3">{customer.remark || "-"}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">
                     <div className="flex gap-2">
-                      <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEdit(customer)}>
-                        编辑
-                      </button>
-                      <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteCustomer(customer)}>
-                        删除
-                      </button>
+                      {canUpdateCustomer ? (
+                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEdit(customer)}>
+                          编辑
+                        </button>
+                      ) : null}
+                      {canDeleteCustomer ? (
+                        <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteCustomer(customer)}>
+                          删除
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

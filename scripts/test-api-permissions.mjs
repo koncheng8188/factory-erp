@@ -75,6 +75,9 @@ const source = {
   importTemplate: await readSource("src", "app", "api", "imports", "excel", "template", "route.ts"),
   simpleTemplate: await readSource("src", "app", "api", "imports", "excel", "simple-template", "route.ts"),
   orderImportTemplate: await readSource("src", "app", "api", "orders", "[id]", "import-products", "template", "route.ts"),
+  customers: await readSource("src", "app", "api", "customers", "route.ts"),
+  customerById: await readSource("src", "app", "api", "customers", "[id]", "route.ts"),
+  writeRegistry: await readSource("scripts", "test-write-permissions.mjs"),
   self: await readSource("scripts", "test-api-permissions.mjs")
 };
 
@@ -98,6 +101,9 @@ const backupListGet = functionBody(source.backupList, "GET");
 const importTemplateGet = functionBody(source.importTemplate, "GET");
 const simpleTemplateGet = functionBody(source.simpleTemplate, "GET");
 const orderImportTemplateGet = functionBody(source.orderImportTemplate, "GET");
+const customerPost = functionBody(source.customers, "POST");
+const customerPut = functionBody(source.customerById, "PUT");
+const customerDelete = functionBody(source.customerById, "DELETE");
 
 test("thumbnail route 导入统一 API 权限助手", () => {
   assert.match(source.thumbnail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
@@ -548,3 +554,50 @@ test("模板 GET 不直接使用 requireApiUser", () => { for (const handler of 
 test("备份列表 GET 不直接使用 requireApiUser", () => assert.doesNotMatch(backupListGet, /requireApiUser/));
 test("订单模板 GET 不连续调用单权限助手", () => assert.doesNotMatch(orderImportTemplateGet, /requireApiPermission\(/));
 test("模板 GET 保持二进制 Response 返回", () => { for (const handler of [importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.match(handler, /return new Response\(buffer/); });
+
+test("客户写 route 导入全部权限助手且不再导入登录助手", () => {
+  for (const content of [source.customers, source.customerById]) {
+    assert.match(content, /import \{ requireApiAllPermissions \} from "@\/lib\/auth\/authorization"/);
+    assert.doesNotMatch(content, /requireApiUser/);
+  }
+});
+test("客户 POST 精确要求 view 和 create", () => assert.match(customerPost, /requireApiAllPermissions\(\[\s*"customer\.view",\s*"customer\.create"\s*\]\)/));
+test("客户 PUT 精确要求 view 和 update", () => assert.match(customerPut, /requireApiAllPermissions\(\[\s*"customer\.view",\s*"customer\.update"\s*\]\)/));
+test("客户 DELETE 精确要求 view 和 delete", () => assert.match(customerDelete, /requireApiAllPermissions\(\[\s*"customer\.view",\s*"customer\.delete"\s*\]\)/));
+test("客户三个写接口权限失败立即返回统一响应", () => {
+  for (const handler of [customerPost, customerPut, customerDelete]) assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/);
+});
+test("客户 POST 鉴权早于 JSON 和 create", () => {
+  assertBefore(customerPost, "requireApiAllPermissions", "request.json()");
+  assertBefore(customerPost, "requireApiAllPermissions", "prisma.customer.create");
+});
+test("客户 PUT 鉴权早于 params、JSON 和 update", () => {
+  for (const marker of ["await context.params", "request.json()", "prisma.customer.update"]) assertBefore(customerPut, "requireApiAllPermissions", marker);
+});
+test("客户 DELETE 鉴权早于 params、订单检查和 delete", () => {
+  for (const marker of ["await context.params", "prisma.order.count", "prisma.customer.delete"]) assertBefore(customerDelete, "requireApiAllPermissions", marker);
+});
+test("客户 POST PUT DELETE 分别提取独立函数体", () => {
+  assert.doesNotMatch(customerPost, /customer\.update|customer\.delete/);
+  assert.doesNotMatch(customerPut, /customer\.create|customer\.delete/);
+  assert.doesNotMatch(customerDelete, /customer\.create|customer\.update/);
+});
+test("客户删除关联订单冲突保持中文文案并返回 409", () => assert.match(customerDelete, /该客户已有订单，不能直接删除。[\s\S]*?status: 409/));
+test("客户 PUT 和 DELETE 将 Prisma P2025 映射为 404", () => {
+  assert.match(source.customerById, /error\.code === "P2025"/);
+  for (const handler of [customerPut, customerDelete]) assert.match(handler, /isRecordNotFoundError\(error\)[\s\S]*?客户不存在。[\s\S]*?status: 404/);
+});
+test("客户写接口保持原字段白名单与成功响应", () => {
+  for (const field of ["name", "contact", "phone", "address", "remark"]) {
+    assert.match(customerPost, new RegExp(`(?:body\\.${field}|${field},)`));
+    assert.match(customerPut, new RegExp(`(?:body\\.${field}|${field},)`));
+  }
+  assert.match(customerPost, /NextResponse\.json\(\{ customer \}\)/);
+  assert.match(customerPut, /NextResponse\.json\(\{ customer \}\)/);
+  assert.match(customerDelete, /NextResponse\.json\(\{ ok: true \}\)/);
+});
+test("C3 写权限登记只把客户三个接口列为 protected", () => {
+  assert.match(source.writeRegistry, /const protectedHandlers = new Map/);
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 3\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 29\)/);
+});

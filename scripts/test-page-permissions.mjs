@@ -21,6 +21,7 @@ const files = {
   backupListApi: "src/app/api/system/backup/list/route.ts",
   backupCreateApi: "src/app/api/system/backup/route.ts",
   customers: "src/app/(protected)/customers/page.tsx",
+  customerManager: "src/app/(protected)/customers/customer-manager.tsx",
   orders: "src/app/(protected)/orders/page.tsx",
   outsourcing: "src/app/(protected)/outsourcing/page.tsx",
   delivery: "src/app/(protected)/delivery/page.tsx",
@@ -650,7 +651,34 @@ test("客户列表保留原客户查询、排序和订单数量", () => {
   assert.match(customerPageBody, /orderBy: \{ createdAt: "desc" \}/);
   assert.match(customerPageBody, /_count: \{ select: \{ orders: true \} \}/);
 });
-test("客户列表未提前接入写权限", () => assert.doesNotMatch(customerPageBody, /customer\.(?:create|update|delete)/));
+test("客户页面复用 customer.view 鉴权返回的安全用户", () => assert.match(customerPageBody, /const user = await requirePagePermission\("customer\.view"\)/));
+test("客户页面导入纯权限判断函数", () => assert.match(source.customers, /import \{ hasPermission \} from "@\/lib\/permissions"/));
+test("客户页面计算 view 加 create 组合权限", () => assert.match(customerPageBody, /const canCreateCustomer =\s*hasPermission\(user\.role, "customer\.view", \[\]\) && hasPermission\(user\.role, "customer\.create", \[\]\)/));
+test("客户页面计算 view 加 update 组合权限", () => assert.match(customerPageBody, /const canUpdateCustomer =\s*hasPermission\(user\.role, "customer\.view", \[\]\) && hasPermission\(user\.role, "customer\.update", \[\]\)/));
+test("客户页面计算 view 加 delete 组合权限", () => assert.match(customerPageBody, /const canDeleteCustomer =\s*hasPermission\(user\.role, "customer\.view", \[\]\) && hasPermission\(user\.role, "customer\.delete", \[\]\)/));
+test("客户页面向 Manager 只传三个写权限 Boolean", () => {
+  const managerProps = sourceSlice(customerPageBody, "<CustomerManager", "/>" );
+  for (const prop of ["canCreateCustomer", "canUpdateCustomer", "canDeleteCustomer"]) assert.match(managerProps, new RegExp(`${prop}=\\{${prop}\\}`));
+  assert.doesNotMatch(managerProps, /role=|permissions?=|user=/i);
+});
+test("CustomerManager 只声明三个最小权限 Boolean", () => {
+  for (const prop of ["canCreateCustomer", "canUpdateCustomer", "canDeleteCustomer"]) assert.match(source.customerManager, new RegExp(`${prop}: boolean`));
+  assert.doesNotMatch(source.customerManager, /\brole\s*:|permissions?\s*:/i);
+});
+test("无新增权限时新增表单不进入 DOM", () => assert.match(source.customerManager, /\(isEditing \? canUpdateCustomer : canCreateCustomer\) \? \(\s*<section/));
+test("编辑按钮由 canUpdateCustomer 条件渲染", () => assert.match(source.customerManager, /\{canUpdateCustomer \? \([\s\S]*?编辑[\s\S]*?\) : null\}/));
+test("删除按钮由 canDeleteCustomer 条件渲染", () => assert.match(source.customerManager, /\{canDeleteCustomer \? \([\s\S]*?删除[\s\S]*?\) : null\}/));
+test("客户写权限不使用 disabled 或 CSS 隐藏替代 DOM 过滤", () => {
+  assert.doesNotMatch(source.customerManager, /disabled=\{!?can(?:Create|Update|Delete)Customer\}/);
+  assert.doesNotMatch(source.customerManager, /(?:hidden|invisible)[\s\S]{0,120}can(?:Create|Update|Delete)Customer|can(?:Create|Update|Delete)Customer[\s\S]{0,120}(?:hidden|invisible)/);
+});
+test("CustomerManager 不读取用户、权限 API、Cookie 或 Session", () => assert.doesNotMatch(source.customerManager, /hasPermission|requirePage|\/api\/auth\/me|cookies\(|document\.cookie|session|\brole\b/i));
+test("客户请求地址、方法和刷新流程保持不变", () => {
+  assert.match(source.customerManager, /const url = isEditing \? `\/api\/customers\/\$\{editingId\}` : "\/api\/customers"/);
+  assert.match(source.customerManager, /const method = isEditing \? "PUT" : "POST"/);
+  assert.match(source.customerManager, /fetch\(`\/api\/customers\/\$\{customer\.id\}`, \{ method: "DELETE" \}\)/);
+  assert.match(source.customerManager, /startTransition\(\(\) => router\.refresh\(\)\)/);
+});
 
 test("订单列表导入页面权限助手", () => assert.match(source.orders, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
 test("订单列表只要求一次 order.view", () => assert.equal(occurrenceCount(ordersPageBody, 'requirePagePermission("order.view")'), 1));
@@ -808,6 +836,10 @@ test("仅已批准的读取 API 引用权限助手", async () => {
     "imports/excel/simple-template/route.ts",
     "orders/[id]/import-products/template/route.ts"
   ]);
+  const protectedWriteRoutes = new Set([
+    "customers/route.ts",
+    "customers/[id]/route.ts"
+  ]);
   const { readdir } = await import("node:fs/promises");
   async function scan(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -816,7 +848,7 @@ test("仅已批准的读取 API 引用权限助手", async () => {
       if (entry.isFile() && entry.name === "route.ts") {
         const content = await readFile(target, "utf8");
         const relativePath = path.relative(apiRoot, target).replaceAll("\\", "/");
-        if (permittedRoutes.has(relativePath)) assert.match(content, /requireApi(?:Any|All)?Permission/);
+        if (permittedRoutes.has(relativePath) || protectedWriteRoutes.has(relativePath)) assert.match(content, /requireApi(?:Any|All)?Permission/);
         else assert.doesNotMatch(content, /requireApi(?:Any|All)?Permission/);
       }
     }
