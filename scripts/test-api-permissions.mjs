@@ -77,6 +77,8 @@ const source = {
   orderImportTemplate: await readSource("src", "app", "api", "orders", "[id]", "import-products", "template", "route.ts"),
   customers: await readSource("src", "app", "api", "customers", "route.ts"),
   customerById: await readSource("src", "app", "api", "customers", "[id]", "route.ts"),
+  orders: await readSource("src", "app", "api", "orders", "route.ts"),
+  orderById: await readSource("src", "app", "api", "orders", "[id]", "route.ts"),
   writeRegistry: await readSource("scripts", "test-write-permissions.mjs"),
   self: await readSource("scripts", "test-api-permissions.mjs")
 };
@@ -104,6 +106,9 @@ const orderImportTemplateGet = functionBody(source.orderImportTemplate, "GET");
 const customerPost = functionBody(source.customers, "POST");
 const customerPut = functionBody(source.customerById, "PUT");
 const customerDelete = functionBody(source.customerById, "DELETE");
+const orderPost = functionBody(source.orders, "POST");
+const orderPut = functionBody(source.orderById, "PUT");
+const orderDelete = functionBody(source.orderById, "DELETE");
 
 test("thumbnail route 导入统一 API 权限助手", () => {
   assert.match(source.thumbnail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
@@ -596,8 +601,61 @@ test("客户写接口保持原字段白名单与成功响应", () => {
   assert.match(customerPut, /NextResponse\.json\(\{ customer \}\)/);
   assert.match(customerDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("C3 写权限登记只把客户三个接口列为 protected", () => {
+test("C3b-1 写权限登记包含客户和订单六个 protected 接口", () => {
   assert.match(source.writeRegistry, /const protectedHandlers = new Map/);
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 3\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 29\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 6\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 26\)/);
+});
+
+test("订单写 route 导入全部权限助手且不再导入登录助手", () => {
+  for (const content of [source.orders, source.orderById]) {
+    assert.match(content, /import \{ requireApiAllPermissions \} from "@\/lib\/auth\/authorization"/);
+    assert.doesNotMatch(content, /requireApiUser/);
+  }
+});
+test("订单 POST 精确要求 view 和 create", () => assert.match(orderPost, /requireApiAllPermissions\(\[\s*"order\.view",\s*"order\.create"\s*\]\)/));
+test("订单 PUT 精确要求 view 和 update", () => assert.match(orderPut, /requireApiAllPermissions\(\[\s*"order\.view",\s*"order\.update"\s*\]\)/));
+test("订单 DELETE 精确要求 view 和 delete", () => assert.match(orderDelete, /requireApiAllPermissions\(\[\s*"order\.view",\s*"order\.delete"\s*\]\)/));
+test("订单三个写接口权限失败立即返回统一响应", () => {
+  for (const handler of [orderPost, orderPut, orderDelete]) assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/);
+});
+test("订单 POST 鉴权早于 JSON、客户查询、编号和新增", () => {
+  for (const marker of ["request.json()", "prisma.customer.findUnique", "generateOrderNo", "prisma.order.create"]) assertBefore(orderPost, "requireApiAllPermissions", marker);
+});
+test("订单 PUT 鉴权早于 params、JSON、客户查询和更新", () => {
+  for (const marker of ["await context.params", "request.json()", "prisma.customer.findUnique", "prisma.order.update"]) assertBefore(orderPut, "requireApiAllPermissions", marker);
+});
+test("订单 DELETE 鉴权早于 params、查询、关联检查和事务", () => {
+  for (const marker of ["await context.params", "prisma.order.findUnique", "prisma.partDrawing.count", "prisma.$transaction", "prisma.order.delete"]) assertBefore(orderDelete, "requireApiAllPermissions", marker);
+});
+test("订单 POST 和 PUT 无效 JSON 精确返回 400", () => {
+  for (const handler of [orderPost, orderPut]) assert.match(handler, /catch \(error\)[\s\S]*?error instanceof SyntaxError[\s\S]*?status: 400/);
+});
+test("订单 POST 保持字段白名单并固定 PENDING", () => {
+  for (const field of ["customerId", "orderDate", "deliveryDate", "remark"]) assert.match(orderPost, new RegExp(`body\\.${field}`));
+  assert.match(orderPost, /status: "PENDING"/);
+  assert.doesNotMatch(orderPost, /body\.status/);
+  assert.match(orderPost, /NextResponse\.json\(\{ order \}\)/);
+});
+test("订单 PUT 保持字段白名单且 status 当前仍可更新", () => {
+  for (const field of ["customerId", "orderDate", "deliveryDate", "status", "remark"]) assert.match(orderPut, new RegExp(`body\\.${field}`));
+  assert.match(orderPut, /customerName: customer\.name/);
+  assert.match(orderPut, /NextResponse\.json\(\{ order \}\)/);
+});
+test("订单 PUT 和 DELETE 将 Prisma P2025 映射为 404", () => {
+  assert.match(source.orderById, /error\.code === "P2025"/);
+  for (const handler of [orderPut, orderDelete]) assert.match(handler, /isRecordNotFoundError\(error\)[\s\S]*?订单不存在。[\s\S]*?status: 404/);
+});
+test("订单 DELETE 显式不存在检查继续返回 404", () => assert.match(orderDelete, /if \(!order\)[\s\S]*?订单不存在。[\s\S]*?status: 404/));
+test("订单 DELETE 关联冲突保持中文文案和 409", () => assert.match(orderDelete, /protectedOrderDeleteMessage[\s\S]*?status: 409/));
+test("订单 DELETE 保持普通产品部件清理事务与成功响应", () => {
+  assert.match(orderDelete, /prisma\.\$transaction\(\[/);
+  assert.match(orderDelete, /prisma\.productPart\.deleteMany\(\{ where: \{ orderId: id \} \}\)/);
+  assert.match(orderDelete, /prisma\.product\.deleteMany\(\{ where: \{ orderId: id \} \}\)/);
+  assert.match(orderDelete, /prisma\.order\.delete\(\{ where: \{ id \} \}\)/);
+  assert.match(orderDelete, /NextResponse\.json\(\{ ok: true \}\)/);
+});
+test("订单接口未提前实现编号重试或状态转换矩阵", () => {
+  assert.doesNotMatch(source.orders, /P2002|retry|重试/i);
+  assert.doesNotMatch(source.orderById, /transition|状态转换|allowedTransitions/i);
 });

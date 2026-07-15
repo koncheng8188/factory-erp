@@ -1,6 +1,7 @@
+import type { OrderStatus } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiAllPermissions } from "@/lib/auth/authorization";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -20,17 +21,34 @@ function parseDate(value: unknown, fallback = new Date()) {
   return Number.isNaN(date.getTime()) ? fallback : date;
 }
 
+function isRecordNotFoundError(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "P2025";
+}
+
 const protectedOrderDeleteMessage =
   "该订单已有图纸、生产、外发、回厂、送货或异常记录，不能直接删除。请先确认业务记录后再处理。";
 
 export async function PUT(request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "order.update"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
-    const body = await request.json();
+    let body: Record<string, unknown>;
+    try {
+      const parsed: unknown = await request.json();
+      body = typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : {};
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return NextResponse.json({ error: "请求数据格式错误。" }, { status: 400 });
+      }
+      throw error;
+    }
     const customerId = typeof body.customerId === "string" ? body.customerId : "";
-    const status = typeof body.status === "string" && allowedStatuses.has(body.status) ? body.status : "PENDING";
+    const status: OrderStatus =
+      typeof body.status === "string" && allowedStatuses.has(body.status) ? body.status as OrderStatus : "PENDING";
 
     if (!customerId) {
       return NextResponse.json({ error: "订单必须选择客户。" }, { status: 400 });
@@ -54,13 +72,19 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     });
 
     return NextResponse.json({ order });
-  } catch {
+  } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return NextResponse.json({ error: "订单不存在。" }, { status: 404 });
+    }
     return NextResponse.json({ error: "保存订单失败。" }, { status: 500 });
   }
 }
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "order.delete"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
@@ -122,7 +146,10 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     ]);
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return NextResponse.json({ error: "订单不存在。" }, { status: 404 });
+    }
     return NextResponse.json({ error: "删除订单失败。" }, { status: 500 });
   }
 }

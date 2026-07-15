@@ -12,7 +12,10 @@ const excludedHandlers = new Set(["POST /api/auth/login", "POST /api/auth/logout
 const protectedHandlers = new Map([
   ["POST /api/customers", { stage: "C3a", permissions: ["customer.view", "customer.create"] }],
   ["PUT /api/customers/[id]", { stage: "C3a", permissions: ["customer.view", "customer.update"] }],
-  ["DELETE /api/customers/[id]", { stage: "C3a", permissions: ["customer.view", "customer.delete"] }]
+  ["DELETE /api/customers/[id]", { stage: "C3a", permissions: ["customer.view", "customer.delete"] }],
+  ["POST /api/orders", { stage: "C3b-1", permissions: ["order.view", "order.create"] }],
+  ["PUT /api/orders/[id]", { stage: "C3b-1", permissions: ["order.view", "order.update"] }],
+  ["DELETE /api/orders/[id]", { stage: "C3b-1", permissions: ["order.view", "order.delete"] }]
 ]);
 
 const pendingHandlers = new Map([
@@ -25,12 +28,9 @@ const pendingHandlers = new Map([
   ["POST /api/imports/excel/simple-confirm", "C3i"],
   ["POST /api/imports/excel/simple-preview", "C3i"],
   ["POST /api/kitting/[productId]", "C3e"],
-  ["POST /api/orders", "C3b"],
   ["POST /api/orders/[id]/import-products/confirm", "C3i"],
   ["POST /api/orders/[id]/import-products/preview", "C3i"],
   ["POST /api/orders/[id]/products", "C3c"],
-  ["PUT /api/orders/[id]", "C3b"],
-  ["DELETE /api/orders/[id]", "C3b"],
   ["POST /api/outsourcing", "C3f"],
   ["POST /api/parts/[id]/abnormal/resolve", "C3e"],
   ["POST /api/parts/[id]/abnormal", "C3e"],
@@ -135,17 +135,20 @@ test("只排除登录和登出两个认证写接口", () => {
   assert.deepEqual([...allHandlers.keys()].filter((endpoint) => excludedHandlers.has(endpoint)).sort(), [...excludedHandlers].sort());
 });
 
-test("C3a 已保护接口精确为三个客户写 handler", () => {
-  assert.equal(protectedHandlers.size, 3);
+test("C3b-1 已保护接口精确为客户和订单六个写 handler", () => {
+  assert.equal(protectedHandlers.size, 6);
   assert.deepEqual([...protectedHandlers.keys()].sort(), [
     "DELETE /api/customers/[id]",
+    "DELETE /api/orders/[id]",
     "POST /api/customers",
-    "PUT /api/customers/[id]"
+    "POST /api/orders",
+    "PUT /api/customers/[id]",
+    "PUT /api/orders/[id]"
   ]);
 });
 
-test("待实施注册表精确为 29 个且均记录阶段", () => {
-  assert.equal(pendingHandlers.size, 29);
+test("待实施注册表精确为 26 个且均记录阶段", () => {
+  assert.equal(pendingHandlers.size, 26);
   for (const [endpoint, stage] of pendingHandlers) {
     assert.match(stage, /^C3[b-j]$/, `${endpoint} 缺少有效实施阶段`);
   }
@@ -160,7 +163,7 @@ test("每个业务写 handler 恰好属于已保护或待实施集合", () => {
   );
 });
 
-test("三个客户写 handler 使用精确的 view 加 write 权限组合", () => {
+test("六个已保护写 handler 使用精确的 view 加 write 权限组合", () => {
   for (const [endpoint, definition] of protectedHandlers) {
     const handler = businessHandlers.get(endpoint);
     assert.ok(handler, `缺少 ${endpoint}`);
@@ -173,7 +176,7 @@ test("三个客户写 handler 使用精确的 view 加 write 权限组合", () =
   }
 });
 
-test("客户写路由统一使用全权限助手且不回退 requireApiUser", () => {
+test("客户和订单写路由统一使用全权限助手且不回退 requireApiUser", () => {
   for (const endpoint of protectedHandlers.keys()) {
     const { source } = businessHandlers.get(endpoint);
     assert.match(source, /requireApiAllPermissions/);
@@ -181,7 +184,7 @@ test("客户写路由统一使用全权限助手且不回退 requireApiUser", ()
   }
 });
 
-test("三个客户写 handler 权限失败后立即返回", () => {
+test("六个已保护写 handler 权限失败后立即返回", () => {
   for (const [endpoint] of protectedHandlers) {
     const { source, method } = businessHandlers.get(endpoint);
     assert.match(functionBody(source, method), /if \(!authResult\.ok\) return authResult\.response/, endpoint);
@@ -216,6 +219,44 @@ test("同文件 PUT 与 DELETE 分别检查自身权限和业务顺序", () => {
   assert.doesNotMatch(putBody, /customer\.delete/);
   assert.match(deleteBody, /customer\.delete/);
   assert.doesNotMatch(deleteBody, /customer\.update/);
+});
+
+test("订单 POST 鉴权早于 JSON、客户查询、编号生成和 create", () => {
+  const handler = functionBody(businessHandlers.get("POST /api/orders").source, "POST");
+  for (const marker of ["request.json()", "prisma.customer.findUnique", "generateOrderNo", "prisma.order.create"]) {
+    assertBefore(handler, "requireApiAllPermissions", marker, "POST /api/orders");
+  }
+});
+
+test("订单 PUT 鉴权早于 params、JSON、客户查询和 update", () => {
+  const handler = functionBody(businessHandlers.get("PUT /api/orders/[id]").source, "PUT");
+  for (const marker of ["context.params", "request.json()", "prisma.customer.findUnique", "prisma.order.update"]) {
+    assertBefore(handler, "requireApiAllPermissions", marker, "PUT /api/orders/[id]");
+  }
+});
+
+test("订单 DELETE 鉴权早于 params、订单查询、关联检查和事务", () => {
+  const handler = functionBody(businessHandlers.get("DELETE /api/orders/[id]").source, "DELETE");
+  for (const marker of ["context.params", "prisma.order.findUnique", "prisma.partDrawing.count", "prisma.$transaction", "prisma.order.delete"]) {
+    assertBefore(handler, "requireApiAllPermissions", marker, "DELETE /api/orders/[id]");
+  }
+});
+
+test("订单同文件 PUT 与 DELETE 分别检查自身权限", () => {
+  const source = businessHandlers.get("PUT /api/orders/[id]").source;
+  const putBody = functionBody(source, "PUT");
+  const deleteBody = functionBody(source, "DELETE");
+  assert.match(putBody, /order\.update/);
+  assert.doesNotMatch(putBody, /order\.delete/);
+  assert.match(deleteBody, /order\.delete/);
+  assert.doesNotMatch(deleteBody, /order\.update/);
+});
+
+test("订单三个接口已从 pending 清单移除", () => {
+  for (const endpoint of ["POST /api/orders", "PUT /api/orders/[id]", "DELETE /api/orders/[id]"]) {
+    assert.equal(protectedHandlers.has(endpoint), true);
+    assert.equal(pendingHandlers.has(endpoint), false);
+  }
 });
 
 test("待实施集合仅作清单，不被误判为已经安全", () => {

@@ -67,7 +67,21 @@ function emptyForm(): OrderForm {
   };
 }
 
-export function OrderManager({ orders, customers, filters }: { orders: Order[]; customers: Customer[]; filters: OrderFilters }) {
+export function OrderManager({
+  orders,
+  customers,
+  filters,
+  canCreateOrder,
+  canUpdateOrder,
+  canDeleteOrder
+}: {
+  orders: Order[];
+  customers: Customer[];
+  filters: OrderFilters;
+  canCreateOrder: boolean;
+  canUpdateOrder: boolean;
+  canDeleteOrder: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -106,6 +120,7 @@ export function OrderManager({ orders, customers, filters }: { orders: Order[]; 
   }
 
   function startEdit(order: Order) {
+    if (!canUpdateOrder) return;
     setEditingId(order.id);
     setForm({
       customerId: order.customerId,
@@ -127,6 +142,10 @@ export function OrderManager({ orders, customers, filters }: { orders: Order[]; 
     event.preventDefault();
     setMessage("");
     setError("");
+
+    if ((isEditing && !canUpdateOrder) || (!isEditing && !canCreateOrder)) {
+      return;
+    }
 
     if (!form.customerId) {
       setError("订单必须选择客户。");
@@ -151,6 +170,7 @@ export function OrderManager({ orders, customers, filters }: { orders: Order[]; 
   }
 
   async function deleteOrder(order: Order) {
+    if (!canDeleteOrder) return;
     if (!window.confirm(`确认删除订单“${order.orderNo}”吗？`)) {
       return;
     }
@@ -176,6 +196,7 @@ export function OrderManager({ orders, customers, filters }: { orders: Order[]; 
         <p className="mt-2 text-sm text-[#667085]">建立客户订单，维护交货日期、状态和备注。</p>
       </section>
 
+      {(isEditing ? canUpdateOrder : canCreateOrder) ? (
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
         <h2 className="text-lg font-semibold">{isEditing ? "编辑订单" : "新增订单"}</h2>
         <form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={submitForm}>
@@ -223,9 +244,11 @@ export function OrderManager({ orders, customers, filters }: { orders: Order[]; 
             ) : null}
           </div>
         </form>
-        {message ? <div className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div> : null}
-        {error ? <div className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       </section>
+      ) : null}
+
+      {message ? <div className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div> : null}
+      {error ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
         <h2 className="text-lg font-semibold">订单列表</h2>
@@ -312,12 +335,16 @@ export function OrderManager({ orders, customers, filters }: { orders: Order[]; 
                       <Link className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={`/orders/${order.id}`}>
                         详情
                       </Link>
-                      <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEdit(order)}>
-                        编辑
-                      </button>
-                      <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteOrder(order)}>
-                        删除
-                      </button>
+                      {canUpdateOrder ? (
+                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEdit(order)}>
+                          编辑
+                        </button>
+                      ) : null}
+                      {canDeleteOrder ? (
+                        <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteOrder(order)}>
+                          删除
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { requirePagePermission } from "@/lib/auth/authorization";
 import { isOrderStatus } from "@/lib/order-status";
+import { hasPermission } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { OrderManager } from "./order-manager";
 
@@ -30,7 +31,10 @@ function nextDate(date: Date) {
 }
 
 export default async function OrdersPage({ searchParams }: OrdersPageProps) {
-  await requirePagePermission("order.view");
+  const user = await requirePagePermission("order.view");
+  const canCreateOrder = hasPermission(user.role, "order.create", []);
+  const canUpdateOrder = hasPermission(user.role, "order.update", []);
+  const canDeleteOrder = hasPermission(user.role, "order.delete", []);
 
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
@@ -74,6 +78,9 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     <OrderManager
       orders={orders}
       customers={customers}
+      canCreateOrder={canCreateOrder}
+      canUpdateOrder={canUpdateOrder}
+      canDeleteOrder={canDeleteOrder}
       filters={{
         keyword,
         status,

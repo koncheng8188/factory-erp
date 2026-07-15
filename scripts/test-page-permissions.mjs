@@ -23,6 +23,7 @@ const files = {
   customers: "src/app/(protected)/customers/page.tsx",
   customerManager: "src/app/(protected)/customers/customer-manager.tsx",
   orders: "src/app/(protected)/orders/page.tsx",
+  orderListManager: "src/app/(protected)/orders/order-manager.tsx",
   outsourcing: "src/app/(protected)/outsourcing/page.tsx",
   delivery: "src/app/(protected)/delivery/page.tsx",
   orderDetail: "src/app/(protected)/orders/[id]/page.tsx",
@@ -528,9 +529,36 @@ test("图纸写 API 地址和方法保持不变", () => {
   assert.match(source.orderManager, /fetch\(`\/api\/drawings\/\$\{drawing\.id\}`, \{ method: "DELETE" \}\)/);
 });
 test("图纸上传中心链接继续保留", () => assert.match(source.orderManager, /\/orders\/\$\{order\.id\}\/drawings\/upload-center/));
-test("订单详情页与 Client Manager 不新增写权限标志", () => {
+test("订单详情页与 Client Manager 不新增图纸写权限标志", () => {
   assert.doesNotMatch(source.orderDetail, /can(?:Create|Update|Upload|SetMain|Obsolete)Drawing/);
   assert.doesNotMatch(source.orderManager, /can(?:Create|Update|Upload|SetMain|Obsolete)Drawing/);
+});
+test("订单详情页计算 order.update 且使用空覆盖", () => assert.match(source.orderDetail, /const canUpdateOrder = hasPermission\(user\.role, "order\.update", \[\]\)/));
+test("订单详情页只向 Manager 新增更新权限 Boolean", () => {
+  const managerProps = sourceSlice(source.orderDetail, "<OrderDetailManager", "/>" );
+  assert.match(managerProps, /canUpdateOrder=\{canUpdateOrder\}/);
+  assert.doesNotMatch(managerProps, /canCreateOrder|canDeleteOrder|role=|permissions?=|user=/i);
+});
+test("订单详情 Manager 声明最小更新权限 Boolean", () => {
+  assert.match(source.orderManager, /canUpdateOrder: boolean/);
+  assert.doesNotMatch(source.orderManager, /\brole\s*:|permissions?\s*:/i);
+});
+test("订单基本信息编辑按钮由 canUpdateOrder 条件渲染", () => assert.match(source.orderManager, /\{canUpdateOrder \? \([\s\S]*?编辑订单[\s\S]*?\) : null\}/));
+test("订单详情编辑模式入口有防御性权限检查", () => assert.match(functionBody(source.orderManager, "function startEditOrder"), /if \(!canUpdateOrder\) return/));
+test("订单详情编辑表单同时受权限和编辑模式控制", () => assert.match(source.orderManager, /\{canUpdateOrder && isEditingOrder \? \(\s*<section[\s\S]*?编辑订单基本信息/));
+test("订单详情保存处理函数有更新权限防御", () => assert.match(functionBody(source.orderManager, "async function saveOrder"), /if \(!canUpdateOrder \|\| !isEditingOrder\) return/));
+test("订单详情 status 字段和原 PUT 请求继续保留", () => {
+  assert.match(source.orderManager, /value=\{orderForm\.status\}/);
+  assert.match(source.orderManager, /fetch\(`\/api\/orders\/\$\{order\.id\}`[\s\S]*?method: "PUT"/);
+});
+test("订单更新权限未误用于产品部件图纸和导入入口", () => {
+  for (const marker of ["saveProduct", "savePart", "uploadDrawing", "import-products", "drawings/upload-center"]) assert.match(source.orderManager, new RegExp(marker.replace("/", "\\/")));
+  assert.doesNotMatch(functionBody(source.orderManager, "async function saveProduct"), /canUpdateOrder/);
+  assert.doesNotMatch(functionBody(source.orderManager, "async function savePart"), /canUpdateOrder/);
+});
+test("订单详情权限不使用 disabled 或 CSS 隐藏替代 DOM 过滤", () => {
+  assert.doesNotMatch(source.orderManager, /disabled=\{!?canUpdateOrder\}/);
+  assert.doesNotMatch(source.orderManager, /(?:hidden|invisible)[\s\S]{0,120}canUpdateOrder|canUpdateOrder[\s\S]{0,120}(?:hidden|invisible)/);
 });
 test("生产进度页导入统一页面权限与权限判断助手", () => {
   assert.match(source.production, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/);
@@ -693,7 +721,42 @@ test("订单列表保留筛选、排序和详情 Manager", () => {
   assert.match(ordersPageBody, /orderBy: \{ createdAt: "desc" \}/);
   assert.match(ordersPageBody, /<OrderManager/);
 });
-test("订单列表未提前接入写或导入权限", () => assert.doesNotMatch(ordersPageBody, /order\.(?:create|update|delete|importProducts)/));
+test("订单列表复用 order.view 安全用户", () => assert.match(ordersPageBody, /const user = await requirePagePermission\("order\.view"\)/));
+test("订单列表导入纯权限判断函数", () => assert.match(source.orders, /import \{ hasPermission \} from "@\/lib\/permissions"/));
+test("订单列表计算三个独立写权限 Boolean 和空覆盖", () => {
+  for (const [name, permission] of [["canCreateOrder", "create"], ["canUpdateOrder", "update"], ["canDeleteOrder", "delete"]]) {
+    assert.match(ordersPageBody, new RegExp(`const ${name} = hasPermission\\(user\\.role, "order\\.${permission}", \\[\\]\\)`));
+  }
+});
+test("订单列表只向 Manager 传三个最小写权限 Boolean", () => {
+  const managerProps = sourceSlice(ordersPageBody, "<OrderManager", "/>" );
+  for (const prop of ["canCreateOrder", "canUpdateOrder", "canDeleteOrder"]) assert.match(managerProps, new RegExp(`${prop}=\\{${prop}\\}`));
+  assert.doesNotMatch(managerProps, /role=|permissions?=|user=|overrides=/i);
+});
+test("订单列表未接入导入或跨模块写权限", () => assert.doesNotMatch(ordersPageBody, /order\.importProducts|product\.|part\.|drawing\./));
+test("OrderManager 声明三个最小写权限 Boolean", () => {
+  for (const prop of ["canCreateOrder", "canUpdateOrder", "canDeleteOrder"]) assert.match(source.orderListManager, new RegExp(`${prop}: boolean`));
+  assert.doesNotMatch(source.orderListManager, /\brole\s*:|permissions?\s*:/i);
+});
+test("订单共享表单分别使用创建和编辑权限", () => assert.match(source.orderListManager, /\(isEditing \? canUpdateOrder : canCreateOrder\) \? \(\s*<section/));
+test("订单编辑按钮由 canUpdateOrder 条件渲染", () => assert.match(source.orderListManager, /\{canUpdateOrder \? \([\s\S]*?编辑[\s\S]*?\) : null\}/));
+test("订单删除按钮由 canDeleteOrder 条件渲染", () => assert.match(source.orderListManager, /\{canDeleteOrder \? \([\s\S]*?删除[\s\S]*?\) : null\}/));
+test("订单列表三个写处理函数均有防御性权限检查", () => {
+  assert.match(functionBody(source.orderListManager, "function startEdit"), /if \(!canUpdateOrder\) return/);
+  assert.match(functionBody(source.orderListManager, "async function submitForm"), /\(isEditing && !canUpdateOrder\) \|\| \(!isEditing && !canCreateOrder\)/);
+  assert.match(functionBody(source.orderListManager, "async function deleteOrder"), /if \(!canDeleteOrder\) return/);
+});
+test("订单列表写权限不使用 disabled 或 CSS 隐藏替代 DOM 过滤", () => {
+  assert.doesNotMatch(source.orderListManager, /disabled=\{!?can(?:Create|Update|Delete)Order\}/);
+  assert.doesNotMatch(source.orderListManager, /(?:hidden|invisible)[\s\S]{0,120}can(?:Create|Update|Delete)Order|can(?:Create|Update|Delete)Order[\s\S]{0,120}(?:hidden|invisible)/);
+});
+test("OrderManager 不读取用户、权限 API、Cookie 或 Session", () => assert.doesNotMatch(source.orderListManager, /hasPermission|requirePage|\/api\/auth\/me|cookies\(|document\.cookie|session|\brole\b/i));
+test("订单列表原搜索详情和写请求保持", () => {
+  assert.match(source.orderListManager, /new URLSearchParams/);
+  assert.match(source.orderListManager, /href=\{`\/orders\/\$\{order\.id\}`\}/);
+  assert.match(source.orderListManager, /method: isEditing \? "PUT" : "POST"/);
+  assert.match(source.orderListManager, /fetch\(`\/api\/orders\/\$\{order\.id\}`, \{ method: "DELETE" \}\)/);
+});
 
 test("外发列表导入页面权限助手", () => assert.match(source.outsourcing, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
 test("外发列表只要求一次 outsource.view", () => assert.equal(occurrenceCount(outsourcingPageBody, 'requirePagePermission("outsource.view")'), 1));
@@ -838,7 +901,9 @@ test("仅已批准的读取 API 引用权限助手", async () => {
   ]);
   const protectedWriteRoutes = new Set([
     "customers/route.ts",
-    "customers/[id]/route.ts"
+    "customers/[id]/route.ts",
+    "orders/route.ts",
+    "orders/[id]/route.ts"
   ]);
   const { readdir } = await import("node:fs/promises");
   async function scan(directory) {

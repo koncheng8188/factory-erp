@@ -324,18 +324,21 @@ function ProgressBadge({ value }: { value: FlowState }) {
 export function OrderDetailManager({
   order,
   customers,
+  canUpdateOrder,
   canViewDrawings,
   canViewOriginalDrawings,
   canPrintOrder
 }: {
   order: OrderDetail;
   customers: Customer[];
+  canUpdateOrder: boolean;
   canViewDrawings: boolean;
   canViewOriginalDrawings: boolean;
   canPrintOrder: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [isEditingOrder, setIsEditingOrder] = useState(false);
   const [orderForm, setOrderForm] = useState<OrderForm>({
     customerId: order.customerId,
     orderDate: toDateInputValue(order.orderDate),
@@ -634,6 +637,22 @@ export function OrderDetailManager({
     setOrderForm((current) => ({ ...current, [field]: value }));
   }
 
+  function startEditOrder() {
+    if (!canUpdateOrder) return;
+    setIsEditingOrder(true);
+  }
+
+  function cancelEditOrder() {
+    setIsEditingOrder(false);
+    setOrderForm({
+      customerId: order.customerId,
+      orderDate: toDateInputValue(order.orderDate),
+      deliveryDate: toDateInputValue(order.deliveryDate),
+      status: order.status,
+      remark: order.remark ?? ""
+    });
+  }
+
   function updateProductField(field: keyof ProductForm, value: string) {
     setProductForm((current) => ({ ...current, [field]: value }));
   }
@@ -652,6 +671,8 @@ export function OrderDetailManager({
     setMessage("");
     setError("");
 
+    if (!canUpdateOrder || !isEditingOrder) return;
+
     if (!orderForm.customerId) {
       setError("订单必须选择客户。");
       return;
@@ -669,6 +690,7 @@ export function OrderDetailManager({
       return;
     }
 
+    setIsEditingOrder(false);
     refreshWithMessage("订单基本信息已保存。");
   }
 
@@ -1174,7 +1196,14 @@ export function OrderDetailManager({
 
       <section className="grid gap-4 xl:grid-cols-2">
         <div className="rounded-md border border-[#d8dde6] bg-white p-5">
-          <h2 className="text-lg font-semibold">订单基本信息</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">订单基本信息</h2>
+            {canUpdateOrder ? (
+              <button type="button" className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={startEditOrder}>
+                编辑订单
+              </button>
+            ) : null}
+          </div>
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div><dt className="text-[#667085]">订单号</dt><dd className="mt-1 font-medium">{order.orderNo}</dd></div>
             <div><dt className="text-[#667085]">客户名称</dt><dd className="mt-1 font-medium">{order.customerName}</dd></div>
@@ -1200,6 +1229,7 @@ export function OrderDetailManager({
 
       {renderProductionProgress()}
 
+      {canUpdateOrder && isEditingOrder ? (
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
         <h2 className="text-lg font-semibold">编辑订单基本信息</h2>
         <form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={saveOrder}>
@@ -1230,11 +1260,13 @@ export function OrderDetailManager({
             备注
             <textarea className="mt-1 min-h-20 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={orderForm.remark} onChange={(event) => updateOrderField("remark", event.target.value)} />
           </label>
-          <div className="lg:col-span-2">
+          <div className="flex flex-wrap gap-3 lg:col-span-2">
             <button className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>保存订单</button>
+            <button type="button" className="rounded-md border border-[#cfd6e1] px-4 py-2 text-sm font-medium" onClick={cancelEditOrder}>取消编辑</button>
           </div>
         </form>
       </section>
+      ) : null}
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
         <h2 className="text-lg font-semibold">{editingProductId ? "编辑产品" : "新增产品"}</h2>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { generateOrderNo } from "@/lib/orders";
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiAllPermissions } from "@/lib/auth/authorization";
 
 function normalizeOptional(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -16,10 +16,22 @@ function parseDate(value: unknown, fallback = new Date()) {
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "order.create"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
-    const body = await request.json();
+    let body: Record<string, unknown>;
+    try {
+      const parsed: unknown = await request.json();
+      body = typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : {};
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return NextResponse.json({ error: "请求数据格式错误。" }, { status: 400 });
+      }
+      throw error;
+    }
     const customerId = typeof body.customerId === "string" ? body.customerId : "";
 
     if (!customerId) {
