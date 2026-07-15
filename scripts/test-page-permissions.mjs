@@ -547,9 +547,24 @@ test("订单基本信息编辑按钮由 canUpdateOrder 条件渲染", () => asse
 test("订单详情编辑模式入口有防御性权限检查", () => assert.match(functionBody(source.orderManager, "function startEditOrder"), /if \(!canUpdateOrder\) return/));
 test("订单详情编辑表单同时受权限和编辑模式控制", () => assert.match(source.orderManager, /\{canUpdateOrder && isEditingOrder \? \(\s*<section[\s\S]*?编辑订单基本信息/));
 test("订单详情保存处理函数有更新权限防御", () => assert.match(functionBody(source.orderManager, "async function saveOrder"), /if \(!canUpdateOrder \|\| !isEditingOrder\) return/));
-test("订单详情 status 字段和原 PUT 请求继续保留", () => {
-  assert.match(source.orderManager, /value=\{orderForm\.status\}/);
-  assert.match(source.orderManager, /fetch\(`\/api\/orders\/\$\{order\.id\}`[\s\S]*?method: "PUT"/);
+test("订单详情状态继续只读显示", () => {
+  assert.match(source.orderManager, /订单状态<\/dt><dd className="mt-1">\{getOrderStatusLabel\(order\.status\)\}<\/dd>/);
+});
+test("订单详情编辑表单不再包含状态控件", () => {
+  const editForm = sourceSlice(source.orderManager, '<form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={saveOrder}>', "</form>");
+  assert.doesNotMatch(editForm, /订单状态|orderForm\.status|updateOrderField\("status"/);
+});
+test("订单详情编辑 state 和重置函数不再包含 status", () => {
+  const orderFormType = sourceSlice(source.orderManager, "type OrderForm = {", "};");
+  const initialState = sourceSlice(source.orderManager, "const [orderForm, setOrderForm]", "const [productForm");
+  const cancelEditOrder = functionBody(source.orderManager, "function cancelEditOrder");
+  for (const section of [orderFormType, initialState, cancelEditOrder]) assert.doesNotMatch(section, /\bstatus\b/);
+});
+test("订单详情 PUT 请求体不再提交 status", () => {
+  const saveOrder = functionBody(source.orderManager, "async function saveOrder");
+  assert.match(saveOrder, /fetch\(`\/api\/orders\/\$\{order\.id\}`[\s\S]*?method: "PUT"/);
+  assert.match(saveOrder, /body: JSON\.stringify\(orderForm\)/);
+  assert.doesNotMatch(saveOrder, /orderForm\.status|\bstatus\s*:/);
 });
 test("订单更新权限未误用于产品部件图纸和导入入口", () => {
   for (const marker of ["saveProduct", "savePart", "uploadDrawing", "import-products", "drawings/upload-center"]) assert.match(source.orderManager, new RegExp(marker.replace("/", "\\/")));
@@ -756,6 +771,28 @@ test("订单列表原搜索详情和写请求保持", () => {
   assert.match(source.orderListManager, /href=\{`\/orders\/\$\{order\.id\}`\}/);
   assert.match(source.orderListManager, /method: isEditing \? "PUT" : "POST"/);
   assert.match(source.orderListManager, /fetch\(`\/api\/orders\/\$\{order\.id\}`, \{ method: "DELETE" \}\)/);
+});
+test("订单列表状态筛选和只读状态显示继续保留", () => {
+  const filterForm = sourceSlice(source.orderListManager, '<form className="mt-4 rounded-lg border border-[#d8dde6] bg-white p-4 shadow-sm" onSubmit={submitFilters}>', "</form>");
+  assert.match(filterForm, /filterForm\.status/);
+  assert.match(filterForm, /orderStatusOptions\.map/);
+  assert.match(source.orderListManager, /getOrderStatusLabel\(order\.status\)/);
+});
+test("订单列表新增编辑共用表单不再包含状态控件", () => {
+  const orderForm = sourceSlice(source.orderListManager, '<form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={submitForm}>', "</form>");
+  assert.doesNotMatch(orderForm, /订单状态|form\.status|updateField\("status"/);
+});
+test("订单列表编辑 state 和初始化不再包含 status", () => {
+  const orderFormType = sourceSlice(source.orderListManager, "type OrderForm = {", "};");
+  const emptyForm = functionBody(source.orderListManager, "function emptyForm");
+  const startEdit = functionBody(source.orderListManager, "function startEdit");
+  for (const section of [orderFormType, emptyForm, startEdit]) assert.doesNotMatch(section, /\bstatus\b/);
+});
+test("订单列表 PUT 请求体不再提交 status", () => {
+  const submitForm = functionBody(source.orderListManager, "async function submitForm");
+  assert.match(submitForm, /method: isEditing \? "PUT" : "POST"/);
+  assert.match(submitForm, /body: JSON\.stringify\(form\)/);
+  assert.doesNotMatch(submitForm, /form\.status|\bstatus\s*:/);
 });
 
 test("外发列表导入页面权限助手", () => assert.match(source.outsourcing, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));

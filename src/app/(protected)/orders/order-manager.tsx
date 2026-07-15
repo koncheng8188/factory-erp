@@ -26,7 +26,6 @@ type OrderForm = {
   customerId: string;
   orderDate: string;
   deliveryDate: string;
-  status: string;
   remark: string;
 };
 
@@ -62,7 +61,6 @@ function emptyForm(): OrderForm {
     customerId: "",
     orderDate: todayInputValue(),
     deliveryDate: "",
-    status: "PENDING",
     remark: ""
   };
 }
@@ -126,7 +124,6 @@ export function OrderManager({
       customerId: order.customerId,
       orderDate: toDateInputValue(order.orderDate),
       deliveryDate: toDateInputValue(order.deliveryDate),
-      status: order.status,
       remark: order.remark ?? ""
     });
     setMessage("");
@@ -218,16 +215,6 @@ export function OrderManager({
           <label className="block text-sm font-medium">
             交货日期
             <input type="date" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.deliveryDate} onChange={(event) => updateField("deliveryDate", event.target.value)} />
-          </label>
-          <label className="block text-sm font-medium">
-            订单状态
-            <select className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={form.status} onChange={(event) => updateField("status", event.target.value)}>
-              {orderStatusOptions.map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.label}
-                </option>
-              ))}
-            </select>
           </label>
           <label className="block text-sm font-medium lg:col-span-2">
             备注

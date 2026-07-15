@@ -1,4 +1,3 @@
-import type { OrderStatus } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
@@ -6,8 +5,6 @@ import { requireApiAllPermissions } from "@/lib/auth/authorization";
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
-
-const allowedStatuses = new Set(["PENDING", "PRODUCING", "OUTSOURCING", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED", "ABNORMAL"]);
 
 function normalizeOptional(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -46,9 +43,12 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       }
       throw error;
     }
+
+    if (Object.prototype.hasOwnProperty.call(body, "status")) {
+      return NextResponse.json({ error: "订单状态只能由业务流程自动更新" }, { status: 400 });
+    }
+
     const customerId = typeof body.customerId === "string" ? body.customerId : "";
-    const status: OrderStatus =
-      typeof body.status === "string" && allowedStatuses.has(body.status) ? body.status as OrderStatus : "PENDING";
 
     if (!customerId) {
       return NextResponse.json({ error: "订单必须选择客户。" }, { status: 400 });
@@ -66,7 +66,6 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         customerName: customer.name,
         orderDate: parseDate(body.orderDate),
         deliveryDate: typeof body.deliveryDate === "string" && body.deliveryDate ? parseDate(body.deliveryDate) : null,
-        status,
         remark: normalizeOptional(body.remark)
       }
     });

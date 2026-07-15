@@ -55,6 +55,14 @@ function occurrenceCount(value, target) {
   return value.split(target).length - 1;
 }
 
+function sourceSlice(content, start, end) {
+  const startIndex = content.indexOf(start);
+  const endIndex = content.indexOf(end, startIndex + start.length);
+  assert.notEqual(startIndex, -1, `未找到 ${start}`);
+  assert.notEqual(endIndex, -1, `未找到 ${end}`);
+  return content.slice(startIndex, endIndex);
+}
+
 const source = {
   thumbnail: await readSource("src", "app", "api", "drawings", "[id]", "thumbnail", "route.ts"),
   file: await readSource("src", "app", "api", "drawings", "[id]", "file", "route.ts"),
@@ -637,10 +645,27 @@ test("订单 POST 保持字段白名单并固定 PENDING", () => {
   assert.doesNotMatch(orderPost, /body\.status/);
   assert.match(orderPost, /NextResponse\.json\(\{ order \}\)/);
 });
-test("订单 PUT 保持字段白名单且 status 当前仍可更新", () => {
-  for (const field of ["customerId", "orderDate", "deliveryDate", "status", "remark"]) assert.match(orderPut, new RegExp(`body\\.${field}`));
+test("订单 PUT 保持其余字段白名单且不再更新 status", () => {
+  for (const field of ["customerId", "orderDate", "deliveryDate", "remark"]) assert.match(orderPut, new RegExp(`body\\.${field}`));
   assert.match(orderPut, /customerName: customer\.name/);
   assert.match(orderPut, /NextResponse\.json\(\{ order \}\)/);
+  const updateData = sourceSlice(orderPut, "data: {", "\n      }");
+  assert.doesNotMatch(updateData, /\bstatus\b/);
+});
+test("订单 PUT 使用可靠的自有 status 属性检查", () => {
+  assert.match(orderPut, /Object\.prototype\.hasOwnProperty\.call\(body, "status"\)/);
+  assert.doesNotMatch(orderPut, /body\.status\s*(?:===|!==)|allowedStatuses/);
+});
+test("订单 PUT 只要包含 status 就返回稳定 400 文案", () => {
+  assert.match(orderPut, /if \(Object\.prototype\.hasOwnProperty\.call\(body, "status"\)\) \{\s*return NextResponse\.json\(\{ error: "订单状态只能由业务流程自动更新" \}, \{ status: 400 \}\)/);
+});
+test("订单 PUT 在 JSON 后且客户查询和 update 前拒绝 status", () => {
+  assertBefore(orderPut, "request.json()", "Object.prototype.hasOwnProperty.call");
+  assertBefore(orderPut, "Object.prototype.hasOwnProperty.call", "prisma.customer.findUnique");
+  assertBefore(orderPut, "Object.prototype.hasOwnProperty.call", "prisma.order.update");
+});
+test("订单 PUT 删除旧状态枚举编辑逻辑", () => {
+  assert.doesNotMatch(source.orderById, /OrderStatus|allowedStatuses/);
 });
 test("订单 PUT 和 DELETE 将 Prisma P2025 映射为 404", () => {
   assert.match(source.orderById, /error\.code === "P2025"/);

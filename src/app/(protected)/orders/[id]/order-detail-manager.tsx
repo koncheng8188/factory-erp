@@ -135,7 +135,6 @@ type OrderForm = {
   customerId: string;
   orderDate: string;
   deliveryDate: string;
-  status: string;
   remark: string;
 };
 
@@ -160,7 +159,6 @@ type PartForm = {
   remark: string;
 };
 
-const orderStatuses = ["PENDING", "PRODUCING", "OUTSOURCING", "WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED", "ABNORMAL"];
 const drawingStatuses = ["PENDING", "CONFIRMED", "OBSOLETE"];
 const productionPartStatuses = new Set<ProductPartStatus>(["CUTTING", "WELDING", "POLISHING"]);
 const orderFlowSteps = [
@@ -343,7 +341,6 @@ export function OrderDetailManager({
     customerId: order.customerId,
     orderDate: toDateInputValue(order.orderDate),
     deliveryDate: toDateInputValue(order.deliveryDate),
-    status: order.status,
     remark: order.remark ?? ""
   });
   const [productForm, setProductForm] = useState<ProductForm>(emptyProductForm);
@@ -648,7 +645,6 @@ export function OrderDetailManager({
       customerId: order.customerId,
       orderDate: toDateInputValue(order.orderDate),
       deliveryDate: toDateInputValue(order.deliveryDate),
-      status: order.status,
       remark: order.remark ?? ""
     });
   }
@@ -1249,12 +1245,6 @@ export function OrderDetailManager({
           <label className="block text-sm font-medium">
             交货日期
             <input type="date" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={orderForm.deliveryDate} onChange={(event) => updateOrderField("deliveryDate", event.target.value)} />
-          </label>
-          <label className="block text-sm font-medium">
-            订单状态
-            <select className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={orderForm.status} onChange={(event) => updateOrderField("status", event.target.value)}>
-              {orderStatuses.map((status) => <option key={status} value={status}>{getOrderStatusLabel(status)}</option>)}
-            </select>
           </label>
           <label className="block text-sm font-medium lg:col-span-2">
             备注
