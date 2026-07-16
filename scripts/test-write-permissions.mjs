@@ -121,6 +121,9 @@ function assertBefore(handler, first, second, endpoint) {
 
 const allHandlers = await enumerateWriteHandlers();
 const businessHandlers = new Map([...allHandlers].filter(([endpoint]) => !excludedHandlers.has(endpoint)));
+const orderNumberSource = await readFile(path.join(root, "src", "lib", "orders.ts"), "utf8");
+const standardImportSource = await readFile(path.join(root, "src", "lib", "import-excel.ts"), "utf8");
+const simpleImportSource = await readFile(path.join(root, "src", "lib", "import-excel-simple.ts"), "utf8");
 
 test("写接口总数和方法分布保持基线", () => {
   assert.equal(allHandlers.size, 34);
@@ -223,7 +226,7 @@ test("同文件 PUT 与 DELETE 分别检查自身权限和业务顺序", () => {
 
 test("订单 POST 鉴权早于 JSON、客户查询、编号生成和 create", () => {
   const handler = functionBody(businessHandlers.get("POST /api/orders").source, "POST");
-  for (const marker of ["request.json()", "prisma.customer.findUnique", "generateOrderNo", "prisma.order.create"]) {
+  for (const marker of ["request.json()", "prisma.customer.findUnique", "createOrderWithGeneratedNo"]) {
     assertBefore(handler, "requireApiAllPermissions", marker, "POST /api/orders");
   }
 });
@@ -257,6 +260,96 @@ test("订单三个接口已从 pending 清单移除", () => {
     assert.equal(protectedHandlers.has(endpoint), true);
     assert.equal(pendingHandlers.has(endpoint), false);
   }
+});
+
+test("订单编号生成显式要求 client 且不依赖全局 prisma", () => {
+  assert.match(orderNumberSource, /generateOrderNo\(\s*orderDate: Date,\s*client: OrderClient,/);
+  assert.doesNotMatch(orderNumberSource, /client: OrderClient\s*=|@\/lib\/prisma|\bprisma\.order/);
+});
+
+test("订单编号使用当日前缀查询且不再依赖字符串倒序", () => {
+  const generator = functionBody(orderNumberSource, "generateOrderNo");
+  assert.match(generator, /startsWith: prefix/);
+  assert.match(generator, /client\.order\.findMany/);
+  assert.doesNotMatch(generator, /orderBy|slice\(-3\)|findFirst/);
+});
+
+test("订单编号严格识别前缀后的三位数字", () => {
+  const generator = functionBody(orderNumberSource, "generateOrderNo");
+  assert.match(generator, /validOrderNoPattern = new RegExp/);
+  assert.match(generator, /\\d\{3\}/);
+  assert.match(generator, /if \(!match\) continue/);
+  assert.match(generator, /if \(serial < 1\) continue/);
+});
+
+test("订单编号同时计算数据库和 reservedOrderNos", () => {
+  const generator = functionBody(orderNumberSource, "generateOrderNo");
+  assert.match(generator, /orders\.map\(\(order\) => order\.orderNo\)/);
+  assert.match(generator, /\.\.\.reservedOrderNos/);
+  assert.match(generator, /reservedOrderNos\.add\(orderNo\)/);
+});
+
+test("订单编号最大流水达到 999 时抛出稳定上限错误", () => {
+  const generator = functionBody(orderNumberSource, "generateOrderNo");
+  assert.match(generator, /maximumSerial >= 999/);
+  assert.match(generator, /throw new OrderDailySequenceLimitError\(\)/);
+  assert.match(orderNumberSource, /当日订单编号已达 999 上限，无法新增订单。/);
+  assert.doesNotMatch(generator, /1000/);
+});
+
+test("订单创建服务固定最多三次且每次重新生成编号", () => {
+  const creator = functionBody(orderNumberSource, "createOrderWithGeneratedNo");
+  assert.match(orderNumberSource, /const MAX_ORDER_CREATE_ATTEMPTS = 3/);
+  assert.match(orderNumberSource, /attempt = 1; attempt <= MAX_ORDER_CREATE_ATTEMPTS; attempt \+= 1/);
+  assertBefore(creator, "generateOrderNo(input.orderDate, client)", "client.order.create", "createOrderWithGeneratedNo");
+});
+
+test("订单创建服务只接受批准输入且固定 PENDING", () => {
+  assert.match(orderNumberSource, /export type GeneratedOrderInput = \{[\s\S]*?customerId: string;[\s\S]*?customerName: string;[\s\S]*?orderDate: Date;[\s\S]*?deliveryDate: Date \| null;[\s\S]*?remark: string \| null;[\s\S]*?\};/);
+  const creator = functionBody(orderNumberSource, "createOrderWithGeneratedNo");
+  assert.match(creator, /status: "PENDING"/);
+  assert.doesNotMatch(creator, /\.\.\.input|input\.status/);
+});
+
+test("P2002 识别同时要求已知错误和精确代码", () => {
+  assert.match(orderNumberSource, /error instanceof Prisma\.PrismaClientKnownRequestError/);
+  assert.match(orderNumberSource, /error\.code !== "P2002"/);
+});
+
+test("P2002 modelName 存在时必须为 Order", () => {
+  assert.match(orderNumberSource, /hasOwnProperty\.call\(meta, "modelName"\)/);
+  assert.match(orderNumberSource, /meta\.modelName !== "Order"/);
+});
+
+test("P2002 target 兼容数组和字符串且精确为单个 orderNo", () => {
+  assert.match(orderNumberSource, /Array\.isArray\(target\) \? target : typeof target === "string" \? \[target\] : \[\]/);
+  assert.match(orderNumberSource, /fields\.length === 1 && fields\[0\] === "orderNo"/);
+  assert.doesNotMatch(orderNumberSource, /includes\(["']orderNo["']\)/);
+});
+
+test("非 orderNo P2002 和未知错误立即原样抛出", () => {
+  const creator = functionBody(orderNumberSource, "createOrderWithGeneratedNo");
+  assert.match(creator, /if \(!isOrderNoUniqueConflict\(error\)\) throw error/);
+  assert.doesNotMatch(creator, /P1008|P2024|P2034|locked/i);
+});
+
+test("三次编号冲突耗尽抛出稳定错误", () => {
+  const creator = functionBody(orderNumberSource, "createOrderWithGeneratedNo");
+  assert.match(creator, /attempt === MAX_ORDER_CREATE_ATTEMPTS/);
+  assert.match(creator, /throw new OrderNumberConflictError\(\)/);
+  assert.match(orderNumberSource, /订单编号生成冲突，请重试。/);
+});
+
+test("标准和简化导入继续显式传入 tx 与保留号集合", () => {
+  for (const source of [standardImportSource, simpleImportSource]) {
+    assert.match(source, /generateOrderNo\(orderDate, tx, reservedOrderNos\)/);
+  }
+});
+
+test("订单 DELETE 保持 C3b-2b1 范围外", () => {
+  const handler = functionBody(businessHandlers.get("DELETE /api/orders/[id]").source, "DELETE");
+  assert.doesNotMatch(handler, /P2003|isForeignKey/i);
+  assert.match(handler, /prisma\.\$transaction\(\[/);
 });
 
 test("待实施集合仅作清单，不被误判为已经安全", () => {

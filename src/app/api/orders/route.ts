@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { generateOrderNo } from "@/lib/orders";
+import {
+  createOrderWithGeneratedNo,
+  OrderDailySequenceLimitError,
+  OrderNumberConflictError
+} from "@/lib/orders";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 
 function normalizeOptional(value: unknown) {
@@ -45,22 +49,19 @@ export async function POST(request: NextRequest) {
 
     const orderDate = parseDate(body.orderDate);
     const deliveryDate = typeof body.deliveryDate === "string" && body.deliveryDate ? parseDate(body.deliveryDate) : null;
-    const orderNo = await generateOrderNo(orderDate);
-
-    const order = await prisma.order.create({
-      data: {
-        orderNo,
-        customerId,
-        customerName: customer.name,
-        orderDate,
-        deliveryDate,
-        status: "PENDING",
-        remark: normalizeOptional(body.remark)
-      }
+    const order = await createOrderWithGeneratedNo(prisma, {
+      customerId,
+      customerName: customer.name,
+      orderDate,
+      deliveryDate,
+      remark: normalizeOptional(body.remark)
     });
 
     return NextResponse.json({ order });
-  } catch {
+  } catch (error) {
+    if (error instanceof OrderDailySequenceLimitError || error instanceof OrderNumberConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     return NextResponse.json({ error: "新增订单失败。" }, { status: 500 });
   }
 }

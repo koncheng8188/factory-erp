@@ -87,6 +87,7 @@ const source = {
   customerById: await readSource("src", "app", "api", "customers", "[id]", "route.ts"),
   orders: await readSource("src", "app", "api", "orders", "route.ts"),
   orderById: await readSource("src", "app", "api", "orders", "[id]", "route.ts"),
+  ordersLib: await readSource("src", "lib", "orders.ts"),
   writeRegistry: await readSource("scripts", "test-write-permissions.mjs"),
   self: await readSource("scripts", "test-api-permissions.mjs")
 };
@@ -628,7 +629,7 @@ test("订单三个写接口权限失败立即返回统一响应", () => {
   for (const handler of [orderPost, orderPut, orderDelete]) assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/);
 });
 test("订单 POST 鉴权早于 JSON、客户查询、编号和新增", () => {
-  for (const marker of ["request.json()", "prisma.customer.findUnique", "generateOrderNo", "prisma.order.create"]) assertBefore(orderPost, "requireApiAllPermissions", marker);
+  for (const marker of ["request.json()", "prisma.customer.findUnique", "createOrderWithGeneratedNo"]) assertBefore(orderPost, "requireApiAllPermissions", marker);
 });
 test("订单 PUT 鉴权早于 params、JSON、客户查询和更新", () => {
   for (const marker of ["await context.params", "request.json()", "prisma.customer.findUnique", "prisma.order.update"]) assertBefore(orderPut, "requireApiAllPermissions", marker);
@@ -641,8 +642,8 @@ test("订单 POST 和 PUT 无效 JSON 精确返回 400", () => {
 });
 test("订单 POST 保持字段白名单并固定 PENDING", () => {
   for (const field of ["customerId", "orderDate", "deliveryDate", "remark"]) assert.match(orderPost, new RegExp(`body\\.${field}`));
-  assert.match(orderPost, /status: "PENDING"/);
   assert.doesNotMatch(orderPost, /body\.status/);
+  assert.match(source.ordersLib, /status: "PENDING"/);
   assert.match(orderPost, /NextResponse\.json\(\{ order \}\)/);
 });
 test("订单 PUT 保持其余字段白名单且不再更新 status", () => {
@@ -680,7 +681,41 @@ test("订单 DELETE 保持普通产品部件清理事务与成功响应", () => 
   assert.match(orderDelete, /prisma\.order\.delete\(\{ where: \{ id \} \}\)/);
   assert.match(orderDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("订单接口未提前实现编号重试或状态转换矩阵", () => {
-  assert.doesNotMatch(source.orders, /P2002|retry|重试/i);
+test("订单 POST 委托编号创建服务且不再直接生成和新增", () => {
+  assert.match(orderPost, /createOrderWithGeneratedNo\(prisma, \{/);
+  assert.doesNotMatch(orderPost, /generateOrderNo|prisma\.order\.create/);
+});
+test("订单 POST 向创建服务只传批准字段", () => {
+  const serviceCall = sourceSlice(orderPost, "createOrderWithGeneratedNo(prisma, {", "});");
+  for (const field of ["customerId", "customerName", "orderDate", "deliveryDate", "remark"]) {
+    assert.match(serviceCall, new RegExp(`\\b${field}\\b`));
+  }
+  assert.doesNotMatch(serviceCall, /status|\.\.\./);
+});
+test("订单 POST 日流水上限精确映射 409", () => {
+  const finalCatch = orderPost.slice(orderPost.lastIndexOf("} catch (error) {"));
+  assert.match(finalCatch, /error instanceof OrderDailySequenceLimitError/);
+  assert.match(source.ordersLib, /当日订单编号已达 999 上限，无法新增订单。/);
+  assert.match(finalCatch, /status: 409/);
+});
+test("订单 POST 编号冲突耗尽精确映射 409", () => {
+  const finalCatch = orderPost.slice(orderPost.lastIndexOf("} catch (error) {"));
+  assert.match(finalCatch, /error instanceof OrderNumberConflictError/);
+  assert.match(source.ordersLib, /订单编号生成冲突，请重试。/);
+  assert.match(finalCatch, /status: 409/);
+});
+test("订单 POST 未知错误保持原 500", () => {
+  const finalCatch = orderPost.slice(orderPost.lastIndexOf("} catch (error) {"));
+  assert.match(finalCatch, /新增订单失败。/);
+  assert.match(finalCatch, /status: 500/);
+});
+test("订单 POST 创建服务位于客户查询和日期解析之后", () => {
+  assertBefore(orderPost, "prisma.customer.findUnique", "createOrderWithGeneratedNo");
+  assertBefore(orderPost, "const orderDate = parseDate", "createOrderWithGeneratedNo");
+});
+test("订单 DELETE 未提前实现 P2003 映射", () => {
+  assert.doesNotMatch(orderDelete, /P2003|isForeignKey/i);
+});
+test("订单接口不提前实现状态转换矩阵", () => {
   assert.doesNotMatch(source.orderById, /transition|状态转换|allowedTransitions/i);
 });
