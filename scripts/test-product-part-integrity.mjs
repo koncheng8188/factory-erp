@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
 import { fileURLToPath } from "node:url";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import {
   calculateProductPartTotalQuantity,
   parseStrictPositiveInteger,
@@ -24,6 +24,7 @@ const temporaryDatabasePath = path.join(temporaryRoot, "test.db");
 const temporaryDatabaseUrl = `file:${temporaryDatabasePath.replaceAll("\\", "/")}`;
 const clients = [];
 let client;
+let concurrentClient;
 let customer;
 let cleanupCompleted = false;
 
@@ -76,7 +77,8 @@ before(async () => {
   assert.equal(migration.status, 0, `临时数据库迁移失败：\n${migration.stdout}\n${migration.stderr}`);
 
   client = new PrismaClient({ datasourceUrl: temporaryDatabaseUrl });
-  clients.push(client);
+  concurrentClient = new PrismaClient({ datasourceUrl: temporaryDatabaseUrl });
+  clients.push(client, concurrentClient);
   customer = await client.customer.create({
     data: { name: "C3c-3a 临时数量完整性测试客户" }
   });
@@ -137,6 +139,41 @@ function updateInput(overrides = {}) {
     remark: "数量完整性测试",
     ...overrides
   };
+}
+
+function deleteProductGraph(database, productId) {
+  return database.$transaction([
+    database.productPart.deleteMany({ where: { productId } }),
+    database.product.delete({ where: { id: productId } })
+  ]);
+}
+
+function productDeleteBusinessRecordCounts(database, productId) {
+  return Promise.all([
+    database.partDrawing.count({ where: { productId } }),
+    database.productPartProgressLog.count({ where: { productId } }),
+    database.productPartAbnormal.count({ where: { productId } }),
+    database.outsourceOrderItem.count({ where: { productId } }),
+    database.outsourceReturnItem.count({ where: { part: { productId } } }),
+    database.deliveryOrderItem.count({ where: { productId } }),
+    database.productPart.count({
+      where: {
+        productId,
+        OR: [{ outsourcedQuantity: { gt: 0 } }, { returnedQuantity: { gt: 0 } }, { missingQuantity: { gt: 0 } }]
+      }
+    })
+  ]);
+}
+
+async function expectKnownRequestError(operation, code) {
+  try {
+    await operation;
+    assert.fail(`预期 Prisma ${code}，但操作成功`);
+  } catch (error) {
+    assert.equal(error instanceof Prisma.PrismaClientKnownRequestError, true);
+    assert.equal(error.code, code);
+    return error;
+  }
 }
 
 test("1. 正整数 number 通过严格解析", () => {
@@ -298,11 +335,95 @@ test("26. ProductPart.productQuantity可独立于Product.quantity维护", async 
   assert.deepEqual([updated.productQuantity, updated.totalQuantity], [6, 18]);
 });
 
-test("27. 数量完整性测试期间正式dev.db SHA-256保持不变", async () => {
+test("27. Product及普通ProductPart按现有事务顺序删除成功", async () => {
+  const { product, part } = await createPlanPart();
+  await deleteProductGraph(client, product.id);
+  assert.equal(await client.product.findUnique({ where: { id: product.id } }), null);
+  assert.equal(await client.productPart.findUnique({ where: { id: part.id } }), null);
+});
+
+test("28. Product预检查后出现真实P2003时事务完整回滚", async () => {
+  const { order, product, part } = await createPlanPart();
+  assert.deepEqual(await productDeleteBusinessRecordCounts(client, product.id), [0, 0, 0, 0, 0, 0, 0]);
+
+  const progressLog = await concurrentClient.productPartProgressLog.create({
+    data: {
+      productPartId: part.id,
+      productId: product.id,
+      orderId: order.id,
+      fromStatus: "PENDING",
+      toStatus: "CUTTING",
+      actionName: "C3c-3c 产品删除并发约束测试"
+    }
+  });
+
+  await expectKnownRequestError(deleteProductGraph(client, product.id), "P2003");
+  assert.notEqual(await client.product.findUnique({ where: { id: product.id } }), null);
+  assert.notEqual(await client.productPart.findUnique({ where: { id: part.id } }), null);
+  assert.notEqual(await client.productPartProgressLog.findUnique({ where: { id: progressLog.id } }), null);
+});
+
+test("29. Product最终删除步骤真实触发P2025", async () => {
+  const { product, part } = await createPlanPart();
+  await concurrentClient.productPart.delete({ where: { id: part.id } });
+  await concurrentClient.product.delete({ where: { id: product.id } });
+  await expectKnownRequestError(deleteProductGraph(client, product.id), "P2025");
+});
+
+test("30. 无业务关联ProductPart删除成功且父Product保持", async () => {
+  const { product, part } = await createPlanPart();
+  await client.productPart.delete({ where: { id: part.id } });
+  assert.equal(await client.productPart.findUnique({ where: { id: part.id } }), null);
+  assert.notEqual(await client.product.findUnique({ where: { id: product.id } }), null);
+});
+
+test("31. ProductPart预检查后出现真实P2003时部件和关联记录保持", async () => {
+  const { order, product, part } = await createPlanPart();
+  const precheckedPart = await client.productPart.findUniqueOrThrow({
+    where: { id: part.id },
+    select: {
+      _count: {
+        select: {
+          drawings: true,
+          outsourceItems: true,
+          outsourceReturnItems: true
+        }
+      }
+    }
+  });
+  assert.deepEqual(precheckedPart._count, {
+    drawings: 0,
+    outsourceItems: 0,
+    outsourceReturnItems: 0
+  });
+
+  const progressLog = await concurrentClient.productPartProgressLog.create({
+    data: {
+      productPartId: part.id,
+      productId: product.id,
+      orderId: order.id,
+      fromStatus: "PENDING",
+      toStatus: "CUTTING",
+      actionName: "C3c-3c 部件删除并发约束测试"
+    }
+  });
+
+  await expectKnownRequestError(client.productPart.delete({ where: { id: part.id } }), "P2003");
+  assert.notEqual(await client.productPart.findUnique({ where: { id: part.id } }), null);
+  assert.notEqual(await client.productPartProgressLog.findUnique({ where: { id: progressLog.id } }), null);
+});
+
+test("32. ProductPart并发删除后真实触发P2025", async () => {
+  const { part } = await createPlanPart();
+  await concurrentClient.productPart.delete({ where: { id: part.id } });
+  await expectKnownRequestError(client.productPart.delete({ where: { id: part.id } }), "P2025");
+});
+
+test("33. 数量和删除完整性测试期间正式dev.db SHA-256保持不变", async () => {
   assert.equal(await sha256(formalDatabasePath), formalDatabaseHashBefore);
 });
 
-test("28. 临时SQLite数据库和sidecar及测试目录全部清理", async () => {
+test("34. 临时SQLite数据库和sidecar及测试目录全部清理", async () => {
   await disconnectClients();
   await removeTemporaryDatabase();
   await assert.rejects(access(temporaryRoot), (error) => error?.code === "ENOENT");

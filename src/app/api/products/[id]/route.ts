@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
@@ -111,7 +112,13 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       prisma.product.delete({ where: { id } })
     ]);
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return NextResponse.json({ error: "产品不存在。" }, { status: 404 });
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      return NextResponse.json({ error: protectedProductDeleteMessage }, { status: 409 });
+    }
     return NextResponse.json({ error: "删除产品失败。" }, { status: 500 });
   }
 }

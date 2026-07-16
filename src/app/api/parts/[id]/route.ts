@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
@@ -19,10 +20,6 @@ function normalizeOptional(value: unknown) {
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
-}
-
-function isForeignKeyConstraintError(error: unknown) {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "P2003";
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
@@ -99,16 +96,19 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
     const hasBusinessRecords = part._count.drawings > 0 || part._count.outsourceItems > 0 || part._count.outsourceReturnItems > 0;
     if (hasBusinessRecords) {
-      return NextResponse.json({ error: "\u8be5\u90e8\u4ef6\u5df2\u6709\u56fe\u7eb8\u3001\u5916\u53d1\u6216\u56de\u5382\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664" }, { status: 400 });
+      return NextResponse.json({ error: "\u8be5\u90e8\u4ef6\u5df2\u6709\u56fe\u7eb8\u3001\u5916\u53d1\u6216\u56de\u5382\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664" }, { status: 409 });
     }
 
     await prisma.productPart.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {
-    if (isForeignKeyConstraintError(error)) {
-      return NextResponse.json({ error: "\u8be5\u90e8\u4ef6\u5df2\u6709\u4e1a\u52a1\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664" }, { status: 400 });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return NextResponse.json({ error: "\u90e8\u4ef6\u4e0d\u5b58\u5728" }, { status: 404 });
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      return NextResponse.json({ error: "\u8be5\u90e8\u4ef6\u5df2\u6709\u4e1a\u52a1\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664" }, { status: 409 });
     }
 
-    return NextResponse.json({ error: errorMessage(error, "\u5220\u9664\u90e8\u4ef6\u5931\u8d25") }, { status: 500 });
+    return NextResponse.json({ error: "\u5220\u9664\u90e8\u4ef6\u5931\u8d25" }, { status: 500 });
   }
 }

@@ -132,8 +132,10 @@ const orderDeleteCatch = orderDelete.slice(orderDelete.lastIndexOf("} catch (err
 const productPost = functionBody(source.orderProducts, "POST");
 const productPut = functionBody(source.productById, "PUT");
 const productDelete = functionBody(source.productById, "DELETE");
+const productDeleteCatch = productDelete.slice(productDelete.lastIndexOf("} catch (error) {"));
 const partPatch = functionBody(source.partById, "PATCH");
 const partDelete = functionBody(source.partById, "DELETE");
+const partDeleteCatch = partDelete.slice(partDelete.lastIndexOf("} catch (error) {"));
 const wholePartPost = functionBody(source.wholePart, "POST");
 const partDeleteBusinessConflictMessage = String.raw`\u8be5\u90e8\u4ef6\u5df2\u6709\u56fe\u7eb8\u3001\u5916\u53d1\u6216\u56de\u5382\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664`;
 const partDeleteForeignKeyConflictMessage = String.raw`\u8be5\u90e8\u4ef6\u5df2\u6709\u4e1a\u52a1\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664`;
@@ -855,10 +857,27 @@ test("产品删除保持普通部件清理事务和成功响应", () => {
   assert.match(productDelete, /prisma\.\$transaction\(\[\s*prisma\.productPart\.deleteMany\(\{ where: \{ productId: id \} \}\),\s*prisma\.product\.delete\(\{ where: \{ id \} \}\)\s*\]\)/);
   assert.match(productDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("产品删除未提前修复 TOCTOU、P2003 或 P2025", () => {
+test("产品删除继续保持显式检查位于原删除事务之前", () => {
   assertBefore(productDelete, "Promise.all", "prisma.$transaction");
-  assert.doesNotMatch(productDelete, /P2003|P2025|PrismaClientKnownRequestError|isForeignKey|interactive/i);
-  assert.match(productDelete, /删除产品失败。[\s\S]*?status: 500/);
+  assert.doesNotMatch(productDelete, /interactive|Serializable|retry|locked/i);
+});
+test("产品删除使用 Prisma 运行时已知错误识别 P2025 和 P2003", () => {
+  assert.match(source.productById, /import \{ Prisma \} from "@prisma\/client"/);
+  assert.match(productDeleteCatch, /error instanceof Prisma\.PrismaClientKnownRequestError && error\.code === "P2025"/);
+  assert.match(productDeleteCatch, /error instanceof Prisma\.PrismaClientKnownRequestError && error\.code === "P2003"/);
+  assertBefore(productDeleteCatch, 'error.code === "P2025"', 'error.code === "P2003"');
+});
+test("产品删除 P2025 映射为稳定 404", () => {
+  assert.match(productDeleteCatch, /error\.code === "P2025"[\s\S]*?产品不存在。[\s\S]*?status: 404/);
+});
+test("产品删除 P2003 复用显式冲突文案并映射 409", () => {
+  assert.equal(occurrenceCount(productDelete, "protectedProductDeleteMessage"), 2);
+  assert.match(productDeleteCatch, /error\.code === "P2003"[\s\S]*?error: protectedProductDeleteMessage[\s\S]*?status: 409/);
+});
+test("产品删除未知错误保持固定 500 且不泄露 Prisma 信息", () => {
+  assert.match(productDeleteCatch, /删除产品失败。[\s\S]*?status: 500/);
+  assert.doesNotMatch(productDeleteCatch, /error\.message|String\(error\)|errorMessage\(/);
+  assert.doesNotMatch(productDeleteCatch, /\.meta|field_name|constraint|SQLite/i);
 });
 test("产品 PUT 与 DELETE 使用独立函数体和独立权限", () => {
   assert.doesNotMatch(productPut, /product\.delete|productPart\.deleteMany|product\.delete/);
@@ -986,32 +1005,44 @@ test("部件计划更新不修改累计字段、missing或status", () => {
   }
   assert.doesNotMatch(updateData, /\.\.\.input/);
 });
-test("部件 DELETE 显式关联冲突保持原 400 和原文案", () => {
+test("部件 DELETE 显式关联冲突统一为 409 且原文案逐字保持", () => {
   assert.match(
     partDelete,
-    new RegExp(`if \\(hasBusinessRecords\\)[\\s\\S]*?${escapeRegExp(partDeleteBusinessConflictMessage)}[\\s\\S]*?status: 400`)
+    new RegExp(`if \\(hasBusinessRecords\\)[\\s\\S]*?${escapeRegExp(partDeleteBusinessConflictMessage)}[\\s\\S]*?status: 409`)
   );
 });
-test("部件 DELETE 外键冲突保持原 400 和原文案", () => {
+test("部件 DELETE 使用 Prisma 运行时已知错误识别 P2025 和 P2003", () => {
+  assert.match(source.partById, /import \{ Prisma \} from "@prisma\/client"/);
+  assert.match(partDeleteCatch, /error instanceof Prisma\.PrismaClientKnownRequestError && error\.code === "P2025"/);
+  assert.match(partDeleteCatch, /error instanceof Prisma\.PrismaClientKnownRequestError && error\.code === "P2003"/);
+  assertBefore(partDeleteCatch, 'error.code === "P2025"', 'error.code === "P2003"');
+});
+test("部件 DELETE P2025 映射为稳定 404", () => {
+  assert.match(partDeleteCatch, /error\.code === "P2025"[\s\S]*?\\u90e8\\u4ef6\\u4e0d\\u5b58\\u5728[\s\S]*?status: 404/);
+});
+test("部件 DELETE P2003 映射 409 且原文案逐字保持", () => {
   assert.match(
-    partDelete,
-    new RegExp(`if \\(isForeignKeyConstraintError\\(error\\)\\)[\\s\\S]*?${escapeRegExp(partDeleteForeignKeyConflictMessage)}[\\s\\S]*?status: 400`)
+    partDeleteCatch,
+    new RegExp(`error\\.code === "P2003"[\\s\\S]*?${escapeRegExp(partDeleteForeignKeyConflictMessage)}[\\s\\S]*?status: 409`)
   );
 });
-test("部件 DELETE 不新增 409、P2025 或新的 P2003 映射", () => {
-  assert.doesNotMatch(partDelete, /status: 409/);
-  assert.doesNotMatch(partDelete, /P2025|PrismaClientKnownRequestError/);
-  assert.equal(occurrenceCount(source.partById, '"P2003"'), 1);
+test("部件 DELETE 保留两套独立冲突文案", () => {
+  assert.match(partDelete, new RegExp(escapeRegExp(partDeleteBusinessConflictMessage)));
+  assert.match(partDeleteCatch, new RegExp(escapeRegExp(partDeleteForeignKeyConflictMessage)));
+  assert.notEqual(partDeleteBusinessConflictMessage, partDeleteForeignKeyConflictMessage);
 });
 test("部件 DELETE 保持不存在、成功和未知错误语义", () => {
   assert.match(partDelete, /\\u90e8\\u4ef6\\u4e0d\\u5b58\\u5728" \}, \{ status: 404 \}/);
   assert.match(partDelete, /NextResponse\.json\(\{ success: true \}\)/);
-  assert.match(partDelete, /\\u5220\\u9664\\u90e8\\u4ef6\\u5931\\u8d25"\) \}, \{ status: 500 \}/);
+  assert.match(partDeleteCatch, /\\u5220\\u9664\\u90e8\\u4ef6\\u5931\\u8d25" \}, \{ status: 500 \}/);
+  assert.doesNotMatch(partDeleteCatch, /error\.message|String\(error\)|errorMessage\(/);
+  assert.doesNotMatch(partDeleteCatch, /\.meta|field_name|constraint|SQLite/i);
 });
 test("部件 DELETE 保持关联检查范围且不引入事务或 TOCTOU 加固", () => {
   for (const relation of ["drawings", "outsourceItems", "outsourceReturnItems"]) {
     assert.match(partDelete, new RegExp(`${relation}: true`));
   }
+  assert.doesNotMatch(partDelete, /progressLogs|abnormals|productPartProgressLog|productPartAbnormal/);
   assert.doesNotMatch(partDelete, /\$transaction|interactive|Serializable/);
   assertBefore(partDelete, "hasBusinessRecords", "prisma.productPart.delete");
 });
