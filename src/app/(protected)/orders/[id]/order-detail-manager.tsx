@@ -323,6 +323,9 @@ export function OrderDetailManager({
   order,
   customers,
   canUpdateOrder,
+  canCreateProduct,
+  canUpdateProduct,
+  canDeleteProduct,
   canViewDrawings,
   canViewOriginalDrawings,
   canPrintOrder
@@ -330,6 +333,9 @@ export function OrderDetailManager({
   order: OrderDetail;
   customers: Customer[];
   canUpdateOrder: boolean;
+  canCreateProduct: boolean;
+  canUpdateProduct: boolean;
+  canDeleteProduct: boolean;
   canViewDrawings: boolean;
   canViewOriginalDrawings: boolean;
   canPrintOrder: boolean;
@@ -691,6 +697,7 @@ export function OrderDetailManager({
   }
 
   function startEditProduct(product: Product) {
+    if (!canUpdateProduct) return;
     setEditingProductId(product.id);
     setProductForm({
       productName: product.productName,
@@ -711,6 +718,7 @@ export function OrderDetailManager({
 
   async function saveProduct(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (editingProductId ? !canUpdateProduct : !canCreateProduct) return;
     setMessage("");
     setError("");
 
@@ -741,6 +749,7 @@ export function OrderDetailManager({
   }
 
   async function deleteProduct(product: Product) {
+    if (!canDeleteProduct) return;
     if (!window.confirm(`确认删除产品“${product.productName}”吗？`)) {
       return;
     }
@@ -1258,6 +1267,7 @@ export function OrderDetailManager({
       </section>
       ) : null}
 
+      {(editingProductId ? canUpdateProduct : canCreateProduct) ? (
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
         <h2 className="text-lg font-semibold">{editingProductId ? "编辑产品" : "新增产品"}</h2>
         <form className="mt-4 grid gap-4 lg:grid-cols-3" onSubmit={saveProduct}>
@@ -1291,6 +1301,7 @@ export function OrderDetailManager({
           </div>
         </form>
       </section>
+      ) : null}
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1346,7 +1357,7 @@ export function OrderDetailManager({
                     <td className="border-b border-[#eef2f6] px-3 py-3">{product.remark || "-"}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-3">
                       <div className="flex flex-wrap gap-2">
-                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditProduct(product)}>编辑</button>
+                        {canUpdateProduct ? <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditProduct(product)}>编辑</button> : null}
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button>
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-60" disabled={wholePartProductId === product.id} onClick={() => createWholeProductPart(product)}>
                           {wholePartProductId === product.id ? "处理中" : "设为整件产品"}
@@ -1355,7 +1366,7 @@ export function OrderDetailManager({
                           {productionCompleteProductId === product.id ? "\u5904\u7406\u4e2d" : "\u6807\u8bb0\u751f\u4ea7\u5b8c\u6210"}
                         </button>
                         <Link className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={`/kitting?productId=${product.id}`}>齐套检查</Link>
-                        <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteProduct(product)}>删除</button>
+                        {canDeleteProduct ? <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteProduct(product)}>删除</button> : null}
                       </div>
                     </td>
                   </tr>

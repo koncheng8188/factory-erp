@@ -15,6 +15,15 @@ type OrderDetailPageProps = {
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
   const user = await requirePagePermission("order.view");
   const canUpdateOrder = hasPermission(user.role, "order.update", []);
+  const canCreateProduct =
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "product.create", []);
+  const canUpdateProduct =
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "product.update", []);
+  const canDeleteProduct =
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "product.delete", []);
   const canViewDrawings = hasPermission(user.role, "drawing.view", []);
   const canViewOriginalDrawings =
     canViewDrawings && hasPermission(user.role, "drawing.viewOriginal", []);
@@ -241,6 +250,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         order={orderDetail}
         customers={customers}
         canUpdateOrder={canUpdateOrder}
+        canCreateProduct={canCreateProduct}
+        canUpdateProduct={canUpdateProduct}
+        canDeleteProduct={canDeleteProduct}
         canViewDrawings={canViewDrawings}
         canViewOriginalDrawings={canViewOriginalDrawings}
         canPrintOrder={canPrintOrder}

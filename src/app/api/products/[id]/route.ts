@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
-import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -18,7 +18,10 @@ function parseQuantity(value: unknown) {
 const protectedProductDeleteMessage = "该产品已有图纸、生产、外发、回厂、送货或异常记录，不能直接删除。";
 
 export async function PUT(request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "product.view",
+    "product.update"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
@@ -52,7 +55,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "product.view",
+    "product.delete"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
