@@ -118,6 +118,7 @@ const customerDelete = functionBody(source.customerById, "DELETE");
 const orderPost = functionBody(source.orders, "POST");
 const orderPut = functionBody(source.orderById, "PUT");
 const orderDelete = functionBody(source.orderById, "DELETE");
+const orderDeleteCatch = orderDelete.slice(orderDelete.lastIndexOf("} catch (error) {"));
 
 test("thumbnail route 导入统一 API 权限助手", () => {
   assert.match(source.thumbnail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
@@ -531,13 +532,18 @@ test("导入模板下载不提前要求 import.execute", () => {
   assert.doesNotMatch(simpleTemplateGet, /import\.execute/);
 });
 test("API 权限静态测试自身不连接数据库或写文件", () => {
-  const forbiddenDatabase = new RegExp(`Prisma${"Client"}|@/lib/${"prisma"}`);
+  const forbiddenDatabase = [
+    new RegExp(`new\\s+Prisma${"Client"}\\s*\\(`),
+    new RegExp(`from\\s+["']@${"prisma"}/client["']`),
+    new RegExp(`require\\(["']@${"prisma"}/client["']\\)`),
+    new RegExp(`@/lib/${"prisma"}`)
+  ];
   const forbiddenWrites = [
     new RegExp(`w${"rite"}File\\s*\\(`),
     new RegExp(`a${"ppend"}File\\s*\\(`),
     new RegExp(`m${"kdir"}\\s*\\(`)
   ];
-  assert.doesNotMatch(source.self, forbiddenDatabase);
+  for (const pattern of forbiddenDatabase) assert.doesNotMatch(source.self, pattern);
   for (const pattern of forbiddenWrites) assert.doesNotMatch(source.self, pattern);
 });
 test("备份列表 route 导入统一 API 权限助手", () => assert.match(source.backupList, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/));
@@ -673,7 +679,13 @@ test("订单 PUT 和 DELETE 将 Prisma P2025 映射为 404", () => {
   for (const handler of [orderPut, orderDelete]) assert.match(handler, /isRecordNotFoundError\(error\)[\s\S]*?订单不存在。[\s\S]*?status: 404/);
 });
 test("订单 DELETE 显式不存在检查继续返回 404", () => assert.match(orderDelete, /if \(!order\)[\s\S]*?订单不存在。[\s\S]*?status: 404/));
-test("订单 DELETE 关联冲突保持中文文案和 409", () => assert.match(orderDelete, /protectedOrderDeleteMessage[\s\S]*?status: 409/));
+test("订单 DELETE 显式关联冲突保持完整中文文案和 409", () => {
+  assert.match(
+    source.orderById,
+    /const protectedOrderDeleteMessage =\s*"该订单已有图纸、生产、外发、回厂、送货或异常记录，不能直接删除。请先确认业务记录后再处理。";/
+  );
+  assert.match(orderDelete, /if \(hasBusinessRecords\)[\s\S]*?protectedOrderDeleteMessage[\s\S]*?status: 409/);
+});
 test("订单 DELETE 保持普通产品部件清理事务与成功响应", () => {
   assert.match(orderDelete, /prisma\.\$transaction\(\[/);
   assert.match(orderDelete, /prisma\.productPart\.deleteMany\(\{ where: \{ orderId: id \} \}\)/);
@@ -713,8 +725,37 @@ test("订单 POST 创建服务位于客户查询和日期解析之后", () => {
   assertBefore(orderPost, "prisma.customer.findUnique", "createOrderWithGeneratedNo");
   assertBefore(orderPost, "const orderDate = parseDate", "createOrderWithGeneratedNo");
 });
-test("订单 DELETE 未提前实现 P2003 映射", () => {
-  assert.doesNotMatch(orderDelete, /P2003|isForeignKey/i);
+test("订单 DELETE 通过 Prisma 运行时已知错误精确识别 P2003", () => {
+  assert.match(source.orderById, /import \{ Prisma \} from "@prisma\/client"/);
+  assert.match(
+    source.orderById,
+    /error instanceof Prisma\.PrismaClientKnownRequestError && error\.code === "P2003"/
+  );
+});
+test("订单 DELETE catch 继续优先将 P2025 映射为 404", () => {
+  assert.match(orderDeleteCatch, /if \(isRecordNotFoundError\(error\)\)[\s\S]*?订单不存在。[\s\S]*?status: 404/);
+  assertBefore(orderDeleteCatch, "isRecordNotFoundError(error)", "isOrderDeleteConflictError(error)");
+});
+test("订单 DELETE catch 将 P2003 独立映射为 409", () => {
+  assert.match(orderDeleteCatch, /if \(isOrderDeleteConflictError\(error\)\)[\s\S]*?status: 409/);
+  assert.equal(occurrenceCount(orderDeleteCatch, "if (isRecordNotFoundError(error))"), 1);
+  assert.equal(occurrenceCount(orderDeleteCatch, "if (isOrderDeleteConflictError(error))"), 1);
+});
+test("订单 DELETE 显式冲突和 P2003 catch 复用同一文案常量", () => {
+  assert.equal(occurrenceCount(orderDelete, "protectedOrderDeleteMessage"), 2);
+  assert.match(orderDeleteCatch, /error: protectedOrderDeleteMessage/);
+});
+test("订单 DELETE 未知错误继续返回原 500 文案", () => {
+  assert.match(orderDeleteCatch, /删除订单失败。[\s\S]*?status: 500/);
+});
+test("订单 DELETE P2003 判断不依赖元数据且不实现锁错误重试", () => {
+  const helper = sourceSlice(source.orderById, "function isOrderDeleteConflictError", "const protectedOrderDeleteMessage");
+  assert.doesNotMatch(helper, /\.meta|field_name|P2002|P1008|P2024|P2034|locked|retry/i);
+});
+test("订单 DELETE 关联检查保持在原批量事务之前", () => {
+  const transaction = sourceSlice(orderDelete, "prisma.$transaction([", "]);\n\n    return NextResponse.json");
+  assertBefore(orderDelete, "const hasBusinessRecords", "prisma.$transaction");
+  assert.doesNotMatch(transaction, /\.count\(|hasBusinessRecords/);
 });
 test("订单接口不提前实现状态转换矩阵", () => {
   assert.doesNotMatch(source.orderById, /transition|状态转换|allowedTransitions/i);

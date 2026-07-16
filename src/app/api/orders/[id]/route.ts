@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 
@@ -20,6 +21,10 @@ function parseDate(value: unknown, fallback = new Date()) {
 
 function isRecordNotFoundError(error: unknown) {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2025";
+}
+
+function isOrderDeleteConflictError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003";
 }
 
 const protectedOrderDeleteMessage =
@@ -148,6 +153,9 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
   } catch (error) {
     if (isRecordNotFoundError(error)) {
       return NextResponse.json({ error: "订单不存在。" }, { status: 404 });
+    }
+    if (isOrderDeleteConflictError(error)) {
+      return NextResponse.json({ error: protectedOrderDeleteMessage }, { status: 409 });
     }
     return NextResponse.json({ error: "删除订单失败。" }, { status: 500 });
   }

@@ -98,6 +98,58 @@ async function insertOrder(orderNo, orderDate) {
   });
 }
 
+async function createOrderGraph(database, label) {
+  const order = await database.order.create({
+    data: {
+      orderNo: `C3B2B2-${label}-${randomUUID()}`,
+      customerId: customer.id,
+      customerName: customer.name,
+      status: "PENDING"
+    }
+  });
+  const product = await database.product.create({
+    data: {
+      orderId: order.id,
+      productName: `${label} 产品`
+    }
+  });
+  const part = await database.productPart.create({
+    data: {
+      orderId: order.id,
+      productId: product.id,
+      partName: `${label} 部件`
+    }
+  });
+  return { order, product, part };
+}
+
+function deleteOrderGraph(database, orderId) {
+  return database.$transaction([
+    database.productPart.deleteMany({ where: { orderId } }),
+    database.product.deleteMany({ where: { orderId } }),
+    database.order.delete({ where: { id: orderId } })
+  ]);
+}
+
+function restrictedBusinessRecordCounts(database, orderId) {
+  return Promise.all([
+    database.partDrawing.count({ where: { orderId } }),
+    database.productPartProgressLog.count({ where: { orderId } }),
+    database.productPartAbnormal.count({ where: { orderId } }),
+    database.outsourceOrder.count({ where: { items: { some: { orderId } } } }),
+    database.outsourceOrderItem.count({ where: { orderId } }),
+    database.outsourceReturnItem.count({ where: { outsourceOrderItem: { orderId } } }),
+    database.deliveryOrder.count({ where: { orderId } }),
+    database.deliveryOrderItem.count({ where: { orderId } }),
+    database.productPart.count({
+      where: {
+        orderId,
+        OR: [{ outsourcedQuantity: { gt: 0 } }, { returnedQuantity: { gt: 0 } }, { missingQuantity: { gt: 0 } }]
+      }
+    })
+  ]);
+}
+
 function generatedInput(orderDate) {
   return {
     customerId: customer?.id ?? "mock-customer",
@@ -302,6 +354,61 @@ test("两个独立 PrismaClient 并发创建得到不同三位订单号", async 
   assert.equal(new Set(stored.map((order) => order.orderNo)).size, 2);
   assert.equal(stored.every((order) => order.status === "PENDING"), true);
   assert.equal(stored.some((order) => order.orderNo.endsWith("1000")), false);
+});
+
+test("只有普通 Product 和 ProductPart 时三步事务删除成功", async () => {
+  const { order, product, part } = await createOrderGraph(client, "普通删除");
+  assert.deepEqual(await restrictedBusinessRecordCounts(client, order.id), Array(9).fill(0));
+
+  const [partResult, productResult, deletedOrder] = await deleteOrderGraph(client, order.id);
+
+  assert.equal(partResult.count, 1);
+  assert.equal(productResult.count, 1);
+  assert.equal(deletedOrder.id, order.id);
+  assert.equal(await client.order.count({ where: { id: order.id } }), 0);
+  assert.equal(await client.product.count({ where: { id: product.id } }), 0);
+  assert.equal(await client.productPart.count({ where: { id: part.id } }), 0);
+});
+
+test("关联检查后新增 ProductPartProgressLog 会真实触发 P2003 并完整回滚", async () => {
+  const deletingClient = new PrismaClient({ datasourceUrl: temporaryDatabaseUrl });
+  const relationClient = new PrismaClient({ datasourceUrl: temporaryDatabaseUrl });
+  clients.push(deletingClient, relationClient);
+  const { order, product, part } = await createOrderGraph(deletingClient, "并发关联");
+
+  assert.deepEqual(await restrictedBusinessRecordCounts(deletingClient, order.id), Array(9).fill(0));
+
+  const progressLog = await relationClient.productPartProgressLog.create({
+    data: {
+      productPartId: part.id,
+      productId: product.id,
+      orderId: order.id,
+      fromStatus: "PENDING",
+      toStatus: "CUTTING",
+      actionName: "C3b-2b2 并发关联测试"
+    }
+  });
+
+  await assert.rejects(
+    deleteOrderGraph(deletingClient, order.id),
+    (error) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003"
+  );
+
+  assert.equal(await deletingClient.order.count({ where: { id: order.id } }), 1);
+  assert.equal(await deletingClient.product.count({ where: { id: product.id } }), 1);
+  assert.equal(await deletingClient.productPart.count({ where: { id: part.id } }), 1);
+  assert.equal(await deletingClient.productPartProgressLog.count({ where: { id: progressLog.id } }), 1);
+});
+
+test("重复删除同一无关联订单真实触发 P2025", async () => {
+  const order = await insertOrder(`C3B2B2-P2025-${randomUUID()}`, localDate(2034, 1, 1));
+  const deletedOrder = await client.order.delete({ where: { id: order.id } });
+  assert.equal(deletedOrder.id, order.id);
+
+  await assert.rejects(
+    client.order.delete({ where: { id: order.id } }),
+    (error) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025"
+  );
 });
 
 test("集成测试期间正式 dev.db SHA-256 保持不变", async () => {
