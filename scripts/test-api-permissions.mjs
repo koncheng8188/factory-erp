@@ -55,6 +55,10 @@ function occurrenceCount(value, target) {
   return value.split(target).length - 1;
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function sourceSlice(content, start, end) {
   const startIndex = content.indexOf(start);
   const endIndex = content.indexOf(end, startIndex + start.length);
@@ -130,6 +134,8 @@ const productDelete = functionBody(source.productById, "DELETE");
 const partPatch = functionBody(source.partById, "PATCH");
 const partDelete = functionBody(source.partById, "DELETE");
 const wholePartPost = functionBody(source.wholePart, "POST");
+const partDeleteBusinessConflictMessage = String.raw`\u8be5\u90e8\u4ef6\u5df2\u6709\u56fe\u7eb8\u3001\u5916\u53d1\u6216\u56de\u5382\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664`;
+const partDeleteForeignKeyConflictMessage = String.raw`\u8be5\u90e8\u4ef6\u5df2\u6709\u4e1a\u52a1\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664`;
 
 test("thumbnail route 导入统一 API 权限助手", () => {
   assert.match(source.thumbnail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
@@ -525,9 +531,9 @@ test("产品部件 GET 保持空数组语义而不新增产品查询或 404", ()
 test("产品部件 GET 保持统一权限失败返回", () => {
   assert.match(productPartsGet, /if \(!authResult\.ok\) return authResult\.response/);
 });
-test("产品部件 POST 保持 requireApiUser 认证", () => {
-  assert.match(productPartsPost, /requireApiUser\(\)/);
-  assert.doesNotMatch(productPartsPost, /requireApiAllPermissions/);
+test("产品部件 POST 已接入部件创建完整资源链权限", () => {
+  assert.match(productPartsPost, /requireApiAllPermissions\(\[\s*"product\.view",\s*"part\.view",\s*"part\.create"\s*\]\)/);
+  assert.doesNotMatch(source.productParts, /requireApiUser/);
 });
 test("产品部件 POST 保留请求体、数量计算与创建逻辑", () => {
   assert.match(productPartsPost, /await request\.json\(\)/);
@@ -627,10 +633,10 @@ test("客户写接口保持原字段白名单与成功响应", () => {
   assert.match(customerPut, /NextResponse\.json\(\{ customer \}\)/);
   assert.match(customerDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("C3c-1 写权限登记包含客户订单和产品九个 protected 接口", () => {
+test("C3c-2 写权限登记包含客户订单产品和部件十三个 protected 接口", () => {
   assert.match(source.writeRegistry, /const protectedHandlers = new Map/);
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 9\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 23\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 13\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 19\)/);
 });
 
 test("订单写 route 导入全部权限助手且不再导入登录助手", () => {
@@ -858,19 +864,105 @@ test("产品 PUT 与 DELETE 使用独立函数体和独立权限", () => {
   assert.doesNotMatch(productPut, /product\.delete/);
   assert.doesNotMatch(productDelete, /product\.update/);
 });
-test("四个部件写接口继续使用登录鉴权并保持 pending", () => {
-  for (const handler of [productPartsPost, partPatch, partDelete, wholePartPost]) {
-    assert.match(handler, /requireApiUser\(\)/);
-    assert.doesNotMatch(handler, /requireApiAllPermissions/);
+test("部件写 route 统一导入全部权限助手且不再导入登录助手", () => {
+  for (const content of [source.productParts, source.partById, source.wholePart]) {
+    assert.match(content, /import \{ requireApiAllPermissions \} from "@\/lib\/auth\/authorization"/);
+    assert.doesNotMatch(content, /requireApiUser/);
   }
-  for (const endpoint of [
-    "POST /api/products/[id]/parts",
-    "PATCH /api/parts/[id]",
-    "DELETE /api/parts/[id]",
-    "POST /api/products/[id]/whole-part"
-  ]) {
-    assert.match(source.writeRegistry, new RegExp(`\\["${endpoint.replaceAll("/", "\\/").replaceAll("[", "\\[").replaceAll("]", "\\]")}", "C3c"\\]`));
+});
+test("普通部件创建精确要求父产品查看、部件查看和部件创建权限", () => {
+  assert.match(productPartsPost, /requireApiAllPermissions\(\[\s*"product\.view",\s*"part\.view",\s*"part\.create"\s*\]\)/);
+});
+test("整件创建精确要求父产品查看、部件查看和部件创建权限", () => {
+  assert.match(wholePartPost, /requireApiAllPermissions\(\[\s*"product\.view",\s*"part\.view",\s*"part\.create"\s*\]\)/);
+});
+test("部件更新精确要求部件查看和更新权限", () => {
+  assert.match(partPatch, /requireApiAllPermissions\(\[\s*"part\.view",\s*"part\.update"\s*\]\)/);
+});
+test("部件删除精确要求部件查看和删除权限", () => {
+  assert.match(partDelete, /requireApiAllPermissions\(\[\s*"part\.view",\s*"part\.delete"\s*\]\)/);
+});
+test("四个部件写接口权限失败后立即返回", () => {
+  for (const handler of [productPartsPost, wholePartPost, partPatch, partDelete]) {
+    assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/);
   }
+});
+test("普通部件创建保持权限、params、JSON、父产品查询、字段数量处理和创建顺序", () => {
+  assertBefore(productPartsPost, "requireApiAllPermissions", "await context.params");
+  assertBefore(productPartsPost, "await context.params", "request.json()");
+  assertBefore(productPartsPost, "request.json()", "prisma.product.findUnique");
+  assertBefore(productPartsPost, "prisma.product.findUnique", "const partName");
+  assertBefore(productPartsPost, "const partName", "const productQuantity");
+  assertBefore(productPartsPost, "const productQuantity", "calculatePartTotalQuantity");
+  assertBefore(productPartsPost, "calculatePartTotalQuantity", "prisma.productPart.create");
+});
+test("整件创建鉴权早于 params、父产品查询和创建", () => {
+  for (const marker of ["await context.params", "prisma.product.findUnique", "prisma.productPart.create"]) {
+    assertBefore(wholePartPost, "requireApiAllPermissions", marker);
+  }
+});
+test("部件更新鉴权早于 params、JSON、目标查询和更新", () => {
+  for (const marker of ["await context.params", "request.json()", "prisma.productPart.findUnique", "prisma.productPart.update"]) {
+    assertBefore(partPatch, "requireApiAllPermissions", marker);
+  }
+});
+test("部件删除鉴权早于 params、目标查询、关联检查和删除", () => {
+  for (const marker of ["await context.params", "prisma.productPart.findUnique", "hasBusinessRecords", "prisma.productPart.delete"]) {
+    assertBefore(partDelete, "requireApiAllPermissions", marker);
+  }
+});
+test("普通部件创建保持现有字段、数量计算和成功响应", () => {
+  for (const field of ["partName", "partCode", "specification", "material", "unitQuantity", "productQuantity", "surfaceTreatment", "color", "remark"]) {
+    assert.match(productPartsPost, new RegExp(`body\\.${field}`));
+  }
+  assert.match(productPartsPost, /calculatePartTotalQuantity\(unitQuantity, productQuantity\)/);
+  assert.match(productPartsPost, /status: "PENDING"/);
+  assert.match(productPartsPost, /NextResponse\.json\(\{ part \}\)/);
+});
+test("整件创建保持现有检查、固定字段和成功响应", () => {
+  assert.match(wholePartPost, /product\._count\.parts > 0/);
+  assert.match(wholePartPost, /blockedProductStatuses\.has\(product\.status\)/);
+  assert.match(wholePartPost, /partName: "整件"/);
+  assert.match(wholePartPost, /unitQuantity: 1/);
+  assert.match(wholePartPost, /productQuantity: product\.quantity/);
+  assert.match(wholePartPost, /totalQuantity: product\.quantity/);
+  assert.match(wholePartPost, /NextResponse\.json\(\{ success: true \}\)/);
+});
+test("部件更新保持字段白名单、数量计算和成功响应", () => {
+  for (const field of ["partName", "partCode", "specification", "material", "unitQuantity", "productQuantity", "surfaceTreatment", "color", "remark"]) {
+    assert.match(partPatch, new RegExp(`(?:body\\.${field}|\\b${field},)`));
+  }
+  assert.match(partPatch, /calculatePartTotalQuantity\(unitQuantity, productQuantity\)/);
+  assert.match(partPatch, /NextResponse\.json\(\{ part \}\)/);
+});
+test("部件 DELETE 显式关联冲突保持原 400 和原文案", () => {
+  assert.match(
+    partDelete,
+    new RegExp(`if \\(hasBusinessRecords\\)[\\s\\S]*?${escapeRegExp(partDeleteBusinessConflictMessage)}[\\s\\S]*?status: 400`)
+  );
+});
+test("部件 DELETE 外键冲突保持原 400 和原文案", () => {
+  assert.match(
+    partDelete,
+    new RegExp(`if \\(isForeignKeyConstraintError\\(error\\)\\)[\\s\\S]*?${escapeRegExp(partDeleteForeignKeyConflictMessage)}[\\s\\S]*?status: 400`)
+  );
+});
+test("部件 DELETE 不新增 409、P2025 或新的 P2003 映射", () => {
+  assert.doesNotMatch(partDelete, /status: 409/);
+  assert.doesNotMatch(partDelete, /P2025|PrismaClientKnownRequestError/);
+  assert.equal(occurrenceCount(source.partById, '"P2003"'), 1);
+});
+test("部件 DELETE 保持不存在、成功和未知错误语义", () => {
+  assert.match(partDelete, /\\u90e8\\u4ef6\\u4e0d\\u5b58\\u5728" \}, \{ status: 404 \}/);
+  assert.match(partDelete, /NextResponse\.json\(\{ success: true \}\)/);
+  assert.match(partDelete, /\\u5220\\u9664\\u90e8\\u4ef6\\u5931\\u8d25"\) \}, \{ status: 500 \}/);
+});
+test("部件 DELETE 保持关联检查范围且不引入事务或 TOCTOU 加固", () => {
+  for (const relation of ["drawings", "outsourceItems", "outsourceReturnItems"]) {
+    assert.match(partDelete, new RegExp(`${relation}: true`));
+  }
+  assert.doesNotMatch(partDelete, /\$transaction|interactive|Serializable/);
+  assertBefore(partDelete, "hasBusinessRecords", "prisma.productPart.delete");
 });
 test("GET 权限 allowlist 继续精确保持十四条", () => {
   const match = /const permittedRoutes = new Set\(\[([\s\S]*?)\]\);/.exec(source.pagePermissionTests);

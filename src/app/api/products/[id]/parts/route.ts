@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { calculatePartTotalQuantity } from "@/lib/product-parts";
-import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -41,7 +40,11 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "product.view",
+    "part.view",
+    "part.create"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;

@@ -543,15 +543,39 @@ test("订单详情页计算产品更新组合权限且使用空覆盖", () => {
 test("订单详情页计算产品删除组合权限且使用空覆盖", () => {
   assert.match(source.orderDetail, /const canDeleteProduct =\s+hasPermission\(user\.role, "product\.view", \[\]\) &&\s+hasPermission\(user\.role, "product\.delete", \[\]\)/);
 });
+test("订单详情页计算部件创建完整资源链权限且使用空覆盖", () => {
+  assert.match(source.orderDetail, /const canCreatePart =\s+hasPermission\(user\.role, "product\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.create", \[\]\)/);
+});
+test("订单详情页计算部件更新组合权限且使用空覆盖", () => {
+  assert.match(source.orderDetail, /const canUpdatePart =\s+hasPermission\(user\.role, "part\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.update", \[\]\)/);
+});
+test("订单详情页计算部件删除组合权限且使用空覆盖", () => {
+  assert.match(source.orderDetail, /const canDeletePart =\s+hasPermission\(user\.role, "part\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.delete", \[\]\)/);
+});
 test("订单详情页只向 Manager 传入批准的写权限 Boolean", () => {
   const managerProps = sourceSlice(source.orderDetail, "<OrderDetailManager", "/>" );
-  for (const name of ["canUpdateOrder", "canCreateProduct", "canUpdateProduct", "canDeleteProduct"]) {
+  for (const name of [
+    "canUpdateOrder",
+    "canCreateProduct",
+    "canUpdateProduct",
+    "canDeleteProduct",
+    "canCreatePart",
+    "canUpdatePart",
+    "canDeletePart"
+  ]) {
     assert.match(managerProps, new RegExp(`${name}=\\{${name}\\}`));
   }
-  assert.doesNotMatch(managerProps, /canCreateOrder|canDeleteOrder|can(?:Create|Update|Delete)Part|role=|permissions?=|user=|overrides=/i);
+  assert.doesNotMatch(managerProps, /canCreateOrder|canDeleteOrder|role=|permissions?=|user=|overrides=/i);
 });
-test("订单详情 Manager 声明三个独立产品写权限 Boolean", () => {
-  for (const name of ["canCreateProduct", "canUpdateProduct", "canDeleteProduct"]) {
+test("订单详情 Manager 声明产品和部件的独立写权限 Boolean", () => {
+  for (const name of [
+    "canCreateProduct",
+    "canUpdateProduct",
+    "canDeleteProduct",
+    "canCreatePart",
+    "canUpdatePart",
+    "canDeletePart"
+  ]) {
     assert.match(source.orderManager, new RegExp(`${name}: boolean`));
   }
   assert.doesNotMatch(source.orderManager, /\brole\s*:|permissions?\s*:|overrides\s*:/i);
@@ -602,9 +626,51 @@ test("产品权限没有接管图纸生产齐套或导入入口", () => {
   assert.doesNotMatch(importAndDrawingLinks, /can(?:Create|Update|Delete)Product/);
   assert.match(source.orderManager, /href=\{`\/kitting\?productId=\$\{product\.id\}`\}>齐套检查<\/Link>/);
 });
-test("订单详情页没有提前计算部件写权限或一致性权限", () => {
-  assert.doesNotMatch(source.orderDetail, /can(?:Create|Update|Delete)Part|part\.(?:create|update|delete)/);
-  assert.doesNotMatch(source.orderManager, /can(?:Create|Update|Delete)Part/);
+test("普通新增部件和创建整件入口均由 canCreatePart 进行 DOM 过滤", () => {
+  assert.equal(
+    occurrenceCount(source.orderManager, '{canCreatePart ? <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button> : null}'),
+    2
+  );
+  assert.match(source.orderManager, /\{canCreatePart \? \(\s+<button[\s\S]*?onClick=\{\(\) => createWholeProductPart\(product\)\}[\s\S]*?设为整件产品[\s\S]*?\) : null\}/);
+});
+test("新增部件和创建整件处理函数均先防御创建权限", () => {
+  assert.match(functionBody(source.orderManager, "function startAddPart"), /if \(!canCreatePart\) return/);
+  const wholePartHandler = functionBody(source.orderManager, "async function createWholeProductPart");
+  assertBefore(wholePartHandler, "if (!canCreatePart) return", "window.alert");
+  assertBefore(wholePartHandler, "if (!canCreatePart) return", "window.confirm");
+});
+test("部件编辑按钮和编辑模式入口由 canUpdatePart 独立控制", () => {
+  assert.match(source.orderManager, /\{canUpdatePart \? <button[\s\S]*?onClick=\{\(\) => startEditPart\(product, part\)\}>编辑<\/button> : null\}/);
+  assert.match(functionBody(source.orderManager, "function startEditPart"), /if \(!canUpdatePart\) return/);
+});
+test("部件删除按钮和确认入口由 canDeletePart 独立控制", () => {
+  assert.match(source.orderManager, /\{canDeletePart \? <button[\s\S]*?onClick=\{\(\) => deletePart\(part\)\}>删除<\/button> : null\}/);
+  const deleteHandler = functionBody(source.orderManager, "async function deletePart");
+  assertBefore(deleteHandler, "if (!canDeletePart) return", "window.confirm");
+});
+test("部件保存函数按创建和更新模式分别防御", () => {
+  assert.match(
+    functionBody(source.orderManager, "async function savePart"),
+    /if \(editingPartId \? !canUpdatePart : !canCreatePart\) return/
+  );
+});
+test("部件表单按创建或编辑模式进行 DOM 过滤", () => {
+  const renderPartForm = functionBody(source.orderManager, "function renderPartForm");
+  assert.match(renderPartForm, /activePartProductId !== product\.id \|\|\s+\(editingPartId \? !canUpdatePart : !canCreatePart\)/);
+  assertBefore(renderPartForm, "(editingPartId ? !canUpdatePart : !canCreatePart)", "return (");
+});
+test("部件三个权限互相独立且不使用 disabled 或 CSS 隐藏替代 DOM 过滤", () => {
+  assert.doesNotMatch(source.orderManager, /disabled=\{!?can(?:Create|Update|Delete)Part\}/);
+  assert.doesNotMatch(source.orderManager, /(?:hidden|invisible|opacity|pointer-events)[\s\S]{0,120}can(?:Create|Update|Delete)Part|can(?:Create|Update|Delete)Part[\s\S]{0,120}(?:hidden|invisible|pointer-events)/);
+  assert.doesNotMatch(functionBody(source.orderManager, "function startAddPart"), /canUpdatePart|canDeletePart/);
+  assert.doesNotMatch(functionBody(source.orderManager, "function startEditPart"), /canCreatePart|canDeletePart/);
+  assert.doesNotMatch(functionBody(source.orderManager, "async function deletePart"), /canCreatePart|canUpdatePart/);
+});
+test("部件权限没有接管图纸生产齐套或导入入口", () => {
+  for (const name of ["uploadDrawings", "updateDrawingStatus", "setMainDrawing", "obsoleteDrawing", "markProductionComplete"]) {
+    assert.doesNotMatch(functionBody(source.orderManager, `async function ${name}`), /can(?:Create|Update|Delete)Part/);
+  }
+  assert.match(source.orderManager, /href=\{`\/kitting\?productId=\$\{product\.id\}`\}>齐套检查<\/Link>/);
 });
 test("订单详情状态继续只读显示", () => {
   assert.match(source.orderManager, /订单状态<\/dt><dd className="mt-1">\{getOrderStatusLabel\(order\.status\)\}<\/dd>/);
@@ -1001,7 +1067,9 @@ test("仅已批准的读取 API 引用权限助手", async () => {
     "orders/route.ts",
     "orders/[id]/route.ts",
     "orders/[id]/products/route.ts",
-    "products/[id]/route.ts"
+    "products/[id]/route.ts",
+    "products/[id]/whole-part/route.ts",
+    "parts/[id]/route.ts"
   ]);
   const { readdir } = await import("node:fs/promises");
   async function scan(directory) {

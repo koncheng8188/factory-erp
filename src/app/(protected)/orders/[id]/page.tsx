@@ -24,6 +24,16 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
   const canDeleteProduct =
     hasPermission(user.role, "product.view", []) &&
     hasPermission(user.role, "product.delete", []);
+  const canCreatePart =
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "part.create", []);
+  const canUpdatePart =
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "part.update", []);
+  const canDeletePart =
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "part.delete", []);
   const canViewDrawings = hasPermission(user.role, "drawing.view", []);
   const canViewOriginalDrawings =
     canViewDrawings && hasPermission(user.role, "drawing.viewOriginal", []);
@@ -253,6 +263,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         canCreateProduct={canCreateProduct}
         canUpdateProduct={canUpdateProduct}
         canDeleteProduct={canDeleteProduct}
+        canCreatePart={canCreatePart}
+        canUpdatePart={canUpdatePart}
+        canDeletePart={canDeletePart}
         canViewDrawings={canViewDrawings}
         canViewOriginalDrawings={canViewOriginalDrawings}
         canPrintOrder={canPrintOrder}

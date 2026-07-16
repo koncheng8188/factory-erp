@@ -326,6 +326,9 @@ export function OrderDetailManager({
   canCreateProduct,
   canUpdateProduct,
   canDeleteProduct,
+  canCreatePart,
+  canUpdatePart,
+  canDeletePart,
   canViewDrawings,
   canViewOriginalDrawings,
   canPrintOrder
@@ -336,6 +339,9 @@ export function OrderDetailManager({
   canCreateProduct: boolean;
   canUpdateProduct: boolean;
   canDeleteProduct: boolean;
+  canCreatePart: boolean;
+  canUpdatePart: boolean;
+  canDeletePart: boolean;
   canViewDrawings: boolean;
   canViewOriginalDrawings: boolean;
   canPrintOrder: boolean;
@@ -768,6 +774,7 @@ export function OrderDetailManager({
   }
 
   async function createWholeProductPart(product: Product) {
+    if (!canCreatePart) return;
     if (product.parts.length > 0 || createdWholePartProductIds.includes(product.id)) {
       window.alert("该产品已有部件，不能设为整件产品");
       return;
@@ -846,6 +853,7 @@ export function OrderDetailManager({
   }
 
   function startAddPart(product: Product) {
+    if (!canCreatePart) return;
     setActivePartProductId(product.id);
     setEditingPartId(null);
     setPartForm(emptyPartForm(product.quantity));
@@ -854,6 +862,7 @@ export function OrderDetailManager({
   }
 
   function startEditPart(product: Product, part: ProductPart) {
+    if (!canUpdatePart) return;
     setActivePartProductId(product.id);
     setEditingPartId(part.id);
     setPartForm({
@@ -879,6 +888,7 @@ export function OrderDetailManager({
 
   async function savePart(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (editingPartId ? !canUpdatePart : !canCreatePart) return;
     setMessage("");
     setError("");
 
@@ -920,6 +930,7 @@ export function OrderDetailManager({
   }
 
   async function deletePart(part: ProductPart) {
+    if (!canDeletePart) return;
     if (!window.confirm(`\u786e\u8ba4\u5220\u9664\u90e8\u4ef6\u201c${part.partName}\u201d\u5417\uff1f`)) {
       return;
     }
@@ -1120,7 +1131,10 @@ export function OrderDetailManager({
   }
 
   function renderPartForm(product: Product) {
-    if (activePartProductId !== product.id) {
+    if (
+      activePartProductId !== product.id ||
+      (editingPartId ? !canUpdatePart : !canCreatePart)
+    ) {
       return null;
     }
 
@@ -1358,10 +1372,12 @@ export function OrderDetailManager({
                     <td className="border-b border-[#eef2f6] px-3 py-3">
                       <div className="flex flex-wrap gap-2">
                         {canUpdateProduct ? <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditProduct(product)}>编辑</button> : null}
-                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button>
-                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-60" disabled={wholePartProductId === product.id} onClick={() => createWholeProductPart(product)}>
-                          {wholePartProductId === product.id ? "处理中" : "设为整件产品"}
-                        </button>
+                        {canCreatePart ? <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button> : null}
+                        {canCreatePart ? (
+                          <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-60" disabled={wholePartProductId === product.id} onClick={() => createWholeProductPart(product)}>
+                            {wholePartProductId === product.id ? "处理中" : "设为整件产品"}
+                          </button>
+                        ) : null}
                         <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-60" disabled={productionCompleteProductId === product.id} onClick={() => markProductionComplete(product)}>
                           {productionCompleteProductId === product.id ? "\u5904\u7406\u4e2d" : "\u6807\u8bb0\u751f\u4ea7\u5b8c\u6210"}
                         </button>
@@ -1374,7 +1390,7 @@ export function OrderDetailManager({
                     <td className="border-b border-[#d8dde6] bg-[#fbfcfd] px-3 py-4" colSpan={8}>
                       <div className="flex items-center justify-between gap-3">
                         <h3 className="font-semibold">部件明细</h3>
-                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button>
+                        {canCreatePart ? <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startAddPart(product)}>新增部件</button> : null}
                       </div>
                       {renderPartForm(product)}
                       <div className="mt-4 overflow-x-auto">
@@ -1418,8 +1434,8 @@ export function OrderDetailManager({
                                 <td className="border-b border-[#eef2f6] px-3 py-2">{part.remark || "-"}</td>
                                 <td className="border-b border-[#eef2f6] px-3 py-2">
                                   <div className="flex gap-2">
-                                    <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditPart(product, part)}>编辑</button>
-                                    <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deletePart(part)}>删除</button>
+                                    {canUpdatePart ? <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" onClick={() => startEditPart(product, part)}>编辑</button> : null}
+                                    {canDeletePart ? <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deletePart(part)}>删除</button> : null}
                                   </div>
                                 </td>
                               </tr>

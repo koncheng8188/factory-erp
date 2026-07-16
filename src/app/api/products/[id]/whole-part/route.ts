@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
-import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -13,7 +13,11 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export async function POST(_request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "product.view",
+    "part.view",
+    "part.create"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;

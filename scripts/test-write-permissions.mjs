@@ -18,7 +18,11 @@ const protectedHandlers = new Map([
   ["DELETE /api/orders/[id]", { stage: "C3b-1", permissions: ["order.view", "order.delete"] }],
   ["POST /api/orders/[id]/products", { stage: "C3c-1", permissions: ["order.view", "product.view", "product.create"] }],
   ["PUT /api/products/[id]", { stage: "C3c-1", permissions: ["product.view", "product.update"] }],
-  ["DELETE /api/products/[id]", { stage: "C3c-1", permissions: ["product.view", "product.delete"] }]
+  ["DELETE /api/products/[id]", { stage: "C3c-1", permissions: ["product.view", "product.delete"] }],
+  ["POST /api/products/[id]/parts", { stage: "C3c-2", permissions: ["product.view", "part.view", "part.create"] }],
+  ["POST /api/products/[id]/whole-part", { stage: "C3c-2", permissions: ["product.view", "part.view", "part.create"] }],
+  ["PATCH /api/parts/[id]", { stage: "C3c-2", permissions: ["part.view", "part.update"] }],
+  ["DELETE /api/parts/[id]", { stage: "C3c-2", permissions: ["part.view", "part.delete"] }]
 ]);
 
 const pendingHandlers = new Map([
@@ -38,11 +42,7 @@ const pendingHandlers = new Map([
   ["POST /api/parts/[id]/abnormal", "C3e"],
   ["POST /api/parts/[id]/advance", "C3e"],
   ["POST /api/parts/[id]/drawings", "C3d"],
-  ["PATCH /api/parts/[id]", "C3c"],
-  ["DELETE /api/parts/[id]", "C3c"],
   ["POST /api/products/[id]/mark-production-complete", "C3e"],
-  ["POST /api/products/[id]/parts", "C3c"],
-  ["POST /api/products/[id]/whole-part", "C3c"],
   ["POST /api/returns", "C3g"],
   ["POST /api/system/backup", "C3j"]
 ]);
@@ -138,23 +138,27 @@ test("只排除登录和登出两个认证写接口", () => {
   assert.deepEqual([...allHandlers.keys()].filter((endpoint) => excludedHandlers.has(endpoint)).sort(), [...excludedHandlers].sort());
 });
 
-test("C3c-1 已保护接口精确为客户订单和产品九个写 handler", () => {
-  assert.equal(protectedHandlers.size, 9);
+test("C3c-2 已保护接口精确为客户订单产品和部件十三个写 handler", () => {
+  assert.equal(protectedHandlers.size, 13);
   assert.deepEqual([...protectedHandlers.keys()].sort(), [
     "DELETE /api/customers/[id]",
     "DELETE /api/orders/[id]",
+    "DELETE /api/parts/[id]",
     "DELETE /api/products/[id]",
+    "PATCH /api/parts/[id]",
     "POST /api/customers",
     "POST /api/orders",
     "POST /api/orders/[id]/products",
+    "POST /api/products/[id]/parts",
+    "POST /api/products/[id]/whole-part",
     "PUT /api/customers/[id]",
     "PUT /api/orders/[id]",
     "PUT /api/products/[id]"
   ]);
 });
 
-test("待实施注册表精确为 23 个且均记录阶段", () => {
-  assert.equal(pendingHandlers.size, 23);
+test("待实施注册表精确为 19 个且均记录阶段", () => {
+  assert.equal(pendingHandlers.size, 19);
   for (const [endpoint, stage] of pendingHandlers) {
     assert.match(stage, /^C3[b-j]$/, `${endpoint} 缺少有效实施阶段`);
   }
@@ -169,7 +173,7 @@ test("每个业务写 handler 恰好属于已保护或待实施集合", () => {
   );
 });
 
-test("九个已保护写 handler 使用精确的完整资源链权限组合", () => {
+test("十三个已保护写 handler 使用精确的完整资源链权限组合", () => {
   for (const [endpoint, definition] of protectedHandlers) {
     const handler = businessHandlers.get(endpoint);
     assert.ok(handler, `缺少 ${endpoint}`);
@@ -186,7 +190,7 @@ test("九个已保护写 handler 使用精确的完整资源链权限组合", ()
   }
 });
 
-test("九个已保护写路由统一使用全权限助手且不回退 requireApiUser", () => {
+test("十三个已保护写路由统一使用全权限助手且不回退 requireApiUser", () => {
   for (const endpoint of protectedHandlers.keys()) {
     const { source } = businessHandlers.get(endpoint);
     assert.match(source, /requireApiAllPermissions/);
@@ -194,7 +198,7 @@ test("九个已保护写路由统一使用全权限助手且不回退 requireApi
   }
 });
 
-test("九个已保护写 handler 权限失败后立即返回", () => {
+test("十三个已保护写 handler 权限失败后立即返回", () => {
   for (const [endpoint] of protectedHandlers) {
     const { source, method } = businessHandlers.get(endpoint);
     assert.match(functionBody(source, method), /if \(!authResult\.ok\) return authResult\.response/, endpoint);
@@ -324,21 +328,76 @@ test("产品 PUT 与 DELETE 分别检查自身权限", () => {
   assert.doesNotMatch(deleteBody, /product\.update/);
 });
 
-test("四个部件 C3c 写接口继续保持 pending", () => {
+test("四个部件写接口已转为 C3c-2 protected 并从 pending 移除", () => {
   const partEndpoints = [
     "POST /api/products/[id]/parts",
+    "POST /api/products/[id]/whole-part",
     "PATCH /api/parts/[id]",
-    "DELETE /api/parts/[id]",
-    "POST /api/products/[id]/whole-part"
+    "DELETE /api/parts/[id]"
   ];
   for (const endpoint of partEndpoints) {
-    assert.equal(pendingHandlers.get(endpoint), "C3c");
-    assert.equal(protectedHandlers.has(endpoint), false);
+    assert.equal(protectedHandlers.get(endpoint)?.stage, "C3c-2");
+    assert.equal(pendingHandlers.has(endpoint), false);
   }
 });
 
-test("除四个部件接口外其余十九个 pending 完整保留", () => {
-  assert.equal([...pendingHandlers.values()].filter((stage) => stage !== "C3c").length, 19);
+test("普通部件和整件创建使用完整父产品资源链权限", () => {
+  for (const endpoint of ["POST /api/products/[id]/parts", "POST /api/products/[id]/whole-part"]) {
+    assert.deepEqual(protectedHandlers.get(endpoint)?.permissions, ["product.view", "part.view", "part.create"]);
+  }
+});
+
+test("部件更新和删除使用各自 view 加 write 权限", () => {
+  assert.deepEqual(protectedHandlers.get("PATCH /api/parts/[id]")?.permissions, ["part.view", "part.update"]);
+  assert.deepEqual(protectedHandlers.get("DELETE /api/parts/[id]")?.permissions, ["part.view", "part.delete"]);
+});
+
+test("普通部件创建保持权限、params、JSON、父产品查询、字段数量处理和 create 顺序", () => {
+  const handler = functionBody(businessHandlers.get("POST /api/products/[id]/parts").source, "POST");
+  const endpoint = "POST /api/products/[id]/parts";
+  assertBefore(handler, "requireApiAllPermissions", "context.params", endpoint);
+  assertBefore(handler, "context.params", "request.json()", endpoint);
+  assertBefore(handler, "request.json()", "prisma.product.findUnique", endpoint);
+  assertBefore(handler, "prisma.product.findUnique", "const partName", endpoint);
+  assertBefore(handler, "const partName", "const productQuantity", endpoint);
+  assertBefore(handler, "const productQuantity", "calculatePartTotalQuantity", endpoint);
+  assertBefore(handler, "calculatePartTotalQuantity", "prisma.productPart.create", endpoint);
+});
+
+test("整件创建鉴权早于 params、父产品查询和 create", () => {
+  const handler = functionBody(businessHandlers.get("POST /api/products/[id]/whole-part").source, "POST");
+  for (const marker of ["context.params", "prisma.product.findUnique", "prisma.productPart.create"]) {
+    assertBefore(handler, "requireApiAllPermissions", marker, "POST /api/products/[id]/whole-part");
+  }
+});
+
+test("部件更新鉴权早于 params、JSON、目标查询和 update", () => {
+  const handler = functionBody(businessHandlers.get("PATCH /api/parts/[id]").source, "PATCH");
+  for (const marker of ["context.params", "request.json()", "prisma.productPart.findUnique", "prisma.productPart.update"]) {
+    assertBefore(handler, "requireApiAllPermissions", marker, "PATCH /api/parts/[id]");
+  }
+});
+
+test("部件删除鉴权早于 params、目标查询、关联检查和 delete", () => {
+  const handler = functionBody(businessHandlers.get("DELETE /api/parts/[id]").source, "DELETE");
+  for (const marker of ["context.params", "prisma.productPart.findUnique", "hasBusinessRecords", "prisma.productPart.delete"]) {
+    assertBefore(handler, "requireApiAllPermissions", marker, "DELETE /api/parts/[id]");
+  }
+});
+
+test("部件 PATCH 与 DELETE 分别检查自身权限", () => {
+  const source = businessHandlers.get("PATCH /api/parts/[id]").source;
+  const patchBody = functionBody(source, "PATCH");
+  const deleteBody = functionBody(source, "DELETE");
+  assert.match(patchBody, /part\.update/);
+  assert.doesNotMatch(patchBody, /part\.delete/);
+  assert.match(deleteBody, /part\.delete/);
+  assert.doesNotMatch(deleteBody, /part\.update/);
+});
+
+test("其余十九个 pending 接口完整保留", () => {
+  assert.equal(pendingHandlers.size, 19);
+  assert.equal([...pendingHandlers.keys()].some((endpoint) => endpoint.includes("/api/parts/[id]") && /^(PATCH|DELETE) /.test(endpoint)), false);
 });
 
 test("订单编号生成显式要求 client 且不依赖全局 prisma", () => {
