@@ -95,6 +95,7 @@ const source = {
   productById: await readSource("src", "app", "api", "products", "[id]", "route.ts"),
   partById: await readSource("src", "app", "api", "parts", "[id]", "route.ts"),
   wholePart: await readSource("src", "app", "api", "products", "[id]", "whole-part", "route.ts"),
+  productPartIntegrity: await readSource("src", "lib", "product-part-integrity.ts"),
   ordersLib: await readSource("src", "lib", "orders.ts"),
   writeRegistry: await readSource("scripts", "test-write-permissions.mjs"),
   pagePermissionTests: await readSource("scripts", "test-page-permissions.mjs"),
@@ -828,12 +829,13 @@ test("产品创建和更新保持原字段白名单与成功响应", () => {
   }
   assert.match(productPost, /status: "PENDING"/);
 });
-test("产品更新未提前联动部件数量或增加一致性校验", () => {
+test("产品更新保持部件产品数量独立且不联动既有部件", () => {
   assert.doesNotMatch(productPut, /productPart|totalQuantity|outsourcedQuantity|returnedQuantity|missingQuantity|\$transaction/);
 });
-test("产品更新保持现有校验和未知错误语义", () => {
+test("产品更新使用严格数量解析并保持未知错误语义", () => {
   assert.match(productPut, /产品名称不能为空。[\s\S]*?status: 400/);
-  assert.match(productPut, /产品数量必须大于 0。[\s\S]*?status: 400/);
+  assert.match(productPut, /parseStrictPositiveInteger\(body\.quantity, "产品数量"\)/);
+  assert.match(productPut, /PositiveIntegerValidationError[\s\S]*?status: 400/);
   assert.match(productPut, /保存产品失败。[\s\S]*?status: 500/);
   assert.doesNotMatch(productPut, /P2025|status: 404/);
 });
@@ -902,7 +904,7 @@ test("整件创建鉴权早于 params、父产品查询和创建", () => {
   }
 });
 test("部件更新鉴权早于 params、JSON、目标查询和更新", () => {
-  for (const marker of ["await context.params", "request.json()", "prisma.productPart.findUnique", "prisma.productPart.update"]) {
+  for (const marker of ["await context.params", "request.json()", "updateProductPartPlan"]) {
     assertBefore(partPatch, "requireApiAllPermissions", marker);
   }
 });
@@ -932,8 +934,57 @@ test("部件更新保持字段白名单、数量计算和成功响应", () => {
   for (const field of ["partName", "partCode", "specification", "material", "unitQuantity", "productQuantity", "surfaceTreatment", "color", "remark"]) {
     assert.match(partPatch, new RegExp(`(?:body\\.${field}|\\b${field},)`));
   }
-  assert.match(partPatch, /calculatePartTotalQuantity\(unitQuantity, productQuantity\)/);
+  assert.match(partPatch, /updateProductPartPlan\(prisma, id,/);
   assert.match(partPatch, /NextResponse\.json\(\{ part \}\)/);
+});
+test("数量完整性库不使用路径别名或全局 Prisma 实例", () => {
+  assert.doesNotMatch(source.productPartIntegrity, /from "@\//);
+  assert.doesNotMatch(source.productPartIntegrity, /@\/lib\/prisma|\bprisma\./);
+  assert.match(source.productPartIntegrity, /client: PrismaClient/);
+});
+test("严格数量解析仅接受 number 或规范十进制正整数字符串", () => {
+  assert.match(source.productPartIntegrity, /typeof value === "number"/);
+  assert.match(source.productPartIntegrity, /typeof value === "string" && \/\^\[1-9\]\\d\*\$\//);
+  assert.match(source.productPartIntegrity, /Number\.isInteger\(parsedValue\)/);
+  assert.match(source.productPartIntegrity, /Number\.isSafeInteger\(parsedValue\)/);
+  assert.match(source.productPartIntegrity, /parsedValue > PRISMA_INT_MAX/);
+  assert.doesNotMatch(source.productPartIntegrity, /const (?:quantity|parsedValue) = Number\(value\)/);
+});
+test("普通部件仅在 productQuantity 属性缺失时采用父产品数量", () => {
+  assert.match(productPartsPost, /body\.productQuantity === undefined \? product\.quantity : body\.productQuantity/);
+  assert.doesNotMatch(productPartsPost, /body\.productQuantity === ""|body\.productQuantity == null/);
+});
+test("普通部件数量和总量验证错误返回400", () => {
+  assert.match(productPartsPost, /PositiveIntegerValidationError[\s\S]*?ProductPartTotalQuantityValidationError[\s\S]*?status: 400/);
+});
+test("普通部件totalQuantity只由公共服务端函数计算", () => {
+  assert.match(productPartsPost, /const totalQuantity = calculatePartTotalQuantity\(unitQuantity, productQuantity\)/);
+  assert.match(productPartsPost, /totalQuantity,/);
+  assert.doesNotMatch(productPartsPost, /body\.totalQuantity|\.\.\.body/);
+});
+test("部件计划服务在同一事务读取累计量并更新", () => {
+  assert.match(source.productPartIntegrity, /client\.\$transaction\(async \(tx\) =>/);
+  assertBefore(source.productPartIntegrity, "tx.productPart.findUnique", "tx.productPart.update");
+  for (const field of ["outsourcedQuantity", "returnedQuantity"]) {
+    assert.match(source.productPartIntegrity, new RegExp(`${field}: true`));
+  }
+});
+test("部件计划服务校验已外发和已回已完成两项累计下限", () => {
+  assert.match(source.productPartIntegrity, /totalQuantity < existingPart\.outsourcedQuantity/);
+  assert.match(source.productPartIntegrity, /totalQuantity < existingPart\.returnedQuantity/);
+  assert.match(source.productPartIntegrity, /部件总数量不能小于已外发数量或已回\/已完成数量。/);
+});
+test("部件PATCH数字错误400、累计冲突409且不存在保持404", () => {
+  assert.match(partPatch, /PositiveIntegerValidationError[\s\S]*?ProductPartTotalQuantityValidationError[\s\S]*?status: 400/);
+  assert.match(partPatch, /ProductPartPlanConflictError[\s\S]*?status: 409/);
+  assert.match(partPatch, /ProductPartNotFoundError[\s\S]*?status: 404/);
+});
+test("部件计划更新不修改累计字段、missing或status", () => {
+  const updateData = sourceSlice(source.productPartIntegrity, "data: {", "\n      }\n    });");
+  for (const field of ["outsourcedQuantity", "returnedQuantity", "missingQuantity", "status"]) {
+    assert.doesNotMatch(updateData, new RegExp(`${field}\\s*:`));
+  }
+  assert.doesNotMatch(updateData, /\.\.\.input/);
 });
 test("部件 DELETE 显式关联冲突保持原 400 和原文案", () => {
   assert.match(

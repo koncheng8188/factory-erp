@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
+import {
+  parseStrictPositiveInteger,
+  PositiveIntegerValidationError
+} from "@/lib/product-part-integrity";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -8,11 +12,6 @@ type RouteContext = {
 
 function normalizeOptional(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function parseQuantity(value: unknown) {
-  const quantity = Number(value);
-  return Number.isInteger(quantity) ? quantity : 0;
 }
 
 const protectedProductDeleteMessage = "该产品已有图纸、生产、外发、回厂、送货或异常记录，不能直接删除。";
@@ -27,13 +26,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const body = await request.json();
     const productName = typeof body.productName === "string" ? body.productName.trim() : "";
-    const quantity = parseQuantity(body.quantity);
+    const quantity = parseStrictPositiveInteger(body.quantity, "产品数量");
 
     if (!productName) {
       return NextResponse.json({ error: "产品名称不能为空。" }, { status: 400 });
-    }
-    if (quantity <= 0) {
-      return NextResponse.json({ error: "产品数量必须大于 0。" }, { status: 400 });
     }
 
     const product = await prisma.product.update({
@@ -49,7 +45,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     });
 
     return NextResponse.json({ product });
-  } catch {
+  } catch (error) {
+    if (error instanceof PositiveIntegerValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: "保存产品失败。" }, { status: 500 });
   }
 }

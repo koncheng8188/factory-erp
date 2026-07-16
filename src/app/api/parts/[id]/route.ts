@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
-import { calculatePartTotalQuantity } from "@/lib/product-parts";
+import {
+  PositiveIntegerValidationError,
+  ProductPartNotFoundError,
+  ProductPartPlanConflictError,
+  ProductPartTotalQuantityValidationError,
+  updateProductPartPlan
+} from "@/lib/product-part-integrity";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -9,11 +15,6 @@ type RouteContext = {
 
 function normalizeOptional(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function parseQuantity(value: unknown) {
-  const quantity = Number(value);
-  return Number.isInteger(quantity) ? quantity : 0;
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -34,51 +35,38 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const body = await request.json();
     const partName = typeof body.partName === "string" ? body.partName.trim() : "";
-    const unitQuantity = parseQuantity(body.unitQuantity);
-    const productQuantity = parseQuantity(body.productQuantity);
 
     if (!partName) {
       return NextResponse.json({ error: "\u90e8\u4ef6\u540d\u79f0\u4e0d\u80fd\u4e3a\u7a7a\u3002" }, { status: 400 });
     }
-    if (unitQuantity <= 0) {
-      return NextResponse.json({ error: "\u5355\u5957\u7528\u91cf\u5fc5\u987b\u5927\u4e8e 0\u3002" }, { status: 400 });
-    }
-    if (productQuantity <= 0) {
-      return NextResponse.json({ error: "\u4ea7\u54c1\u6570\u91cf\u5fc5\u987b\u5927\u4e8e 0\u3002" }, { status: 400 });
-    }
 
-    const totalQuantity = calculatePartTotalQuantity(unitQuantity, productQuantity);
-    if (totalQuantity < 0) {
-      return NextResponse.json({ error: "\u5e94\u52a0\u5de5\u6570\u91cf\u4e0d\u80fd\u4e3a\u8d1f\u6570\u3002" }, { status: 400 });
-    }
-
-    const existingPart = await prisma.productPart.findUnique({
-      where: { id },
-      select: { id: true }
-    });
-
-    if (!existingPart) {
-      return NextResponse.json({ error: "\u90e8\u4ef6\u4e0d\u5b58\u5728\u3002" }, { status: 404 });
-    }
-
-    const part = await prisma.productPart.update({
-      where: { id },
-      data: {
-        partName,
-        partCode: normalizeOptional(body.partCode),
-        specification: normalizeOptional(body.specification),
-        material: normalizeOptional(body.material),
-        unitQuantity,
-        productQuantity,
-        totalQuantity,
-        surfaceTreatment: normalizeOptional(body.surfaceTreatment),
-        color: normalizeOptional(body.color),
-        remark: normalizeOptional(body.remark)
-      }
+    // updateProductPartPlan 内部在同一事务中依次执行 prisma.productPart.findUnique 和 prisma.productPart.update。
+    const part = await updateProductPartPlan(prisma, id, {
+      partName,
+      partCode: normalizeOptional(body.partCode),
+      specification: normalizeOptional(body.specification),
+      material: normalizeOptional(body.material),
+      unitQuantity: body.unitQuantity,
+      productQuantity: body.productQuantity,
+      surfaceTreatment: normalizeOptional(body.surfaceTreatment),
+      color: normalizeOptional(body.color),
+      remark: normalizeOptional(body.remark)
     });
 
     return NextResponse.json({ part });
   } catch (error) {
+    if (
+      error instanceof PositiveIntegerValidationError ||
+      error instanceof ProductPartTotalQuantityValidationError
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof ProductPartPlanConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (error instanceof ProductPartNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
     return NextResponse.json({ error: errorMessage(error, "\u4fdd\u5b58\u90e8\u4ef6\u5931\u8d25\u3002") }, { status: 500 });
   }
 }

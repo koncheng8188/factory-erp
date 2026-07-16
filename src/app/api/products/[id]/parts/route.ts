@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
-import { calculatePartTotalQuantity } from "@/lib/product-parts";
+import {
+  calculateProductPartTotalQuantity as calculatePartTotalQuantity,
+  parseStrictPositiveInteger,
+  PositiveIntegerValidationError,
+  ProductPartTotalQuantityValidationError
+} from "@/lib/product-part-integrity";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -9,11 +14,6 @@ type RouteContext = {
 
 function normalizeOptional(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function parseQuantity(value: unknown) {
-  const quantity = Number(value);
-  return Number.isInteger(quantity) ? quantity : 0;
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -59,25 +59,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const partName = typeof body.partName === "string" ? body.partName.trim() : "";
-    const unitQuantity = parseQuantity(body.unitQuantity);
-    const productQuantity = body.productQuantity === undefined || body.productQuantity === ""
-      ? product.quantity
-      : parseQuantity(body.productQuantity);
+    const unitQuantity = parseStrictPositiveInteger(body.unitQuantity, "单套用量");
+    const productQuantity = parseStrictPositiveInteger(
+      body.productQuantity === undefined ? product.quantity : body.productQuantity,
+      "产品数量"
+    );
 
     if (!partName) {
       return NextResponse.json({ error: "部件名称不能为空。" }, { status: 400 });
     }
-    if (unitQuantity <= 0) {
-      return NextResponse.json({ error: "单套用量必须大于 0。" }, { status: 400 });
-    }
-    if (productQuantity <= 0) {
-      return NextResponse.json({ error: "产品数量必须大于 0。" }, { status: 400 });
-    }
 
     const totalQuantity = calculatePartTotalQuantity(unitQuantity, productQuantity);
-    if (totalQuantity < 0) {
-      return NextResponse.json({ error: "应加工数量不能为负数。" }, { status: 400 });
-    }
 
     const part = await prisma.productPart.create({
       data: {
@@ -102,6 +94,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ part });
   } catch (error) {
+    if (
+      error instanceof PositiveIntegerValidationError ||
+      error instanceof ProductPartTotalQuantityValidationError
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: errorMessage(error, "新增部件失败。") }, { status: 500 });
   }
 }

@@ -672,6 +672,44 @@ test("部件权限没有接管图纸生产齐套或导入入口", () => {
   }
   assert.match(source.orderManager, /href=\{`\/kitting\?productId=\$\{product\.id\}`\}>齐套检查<\/Link>/);
 });
+test("Client数量解析只接受规范十进制正整数并限制Prisma Int上限", () => {
+  const parser = functionBody(source.orderManager, "function parsePositiveIntegerInput");
+  assert.match(parser, /\/\^\[1-9\]\\d\*\$\//);
+  assert.match(parser, /Number\.isSafeInteger\(quantity\)/);
+  assert.match(parser, /quantity <= prismaIntMax/);
+});
+test("产品保存使用严格数量校验和显式请求体", () => {
+  const handler = functionBody(source.orderManager, "async function saveProduct");
+  assert.match(handler, /parsePositiveIntegerInput\(productForm\.quantity\)/);
+  assert.match(handler, /quantity,\s+surfaceTreatment/);
+  assert.match(handler, /body: JSON\.stringify\(productRequestBody\)/);
+  assert.doesNotMatch(handler, /JSON\.stringify\(productForm\)|productPart|totalQuantity/);
+});
+test("部件保存严格校验单套和产品数量", () => {
+  const handler = functionBody(source.orderManager, "async function savePart");
+  assert.match(handler, /parsePositiveIntegerInput\(partForm\.unitQuantity\)/);
+  assert.match(handler, /parsePositiveIntegerInput\(partForm\.productQuantity\)/);
+});
+test("新增普通部件清空产品数量时完全省略该属性", () => {
+  const handler = functionBody(source.orderManager, "async function savePart");
+  assert.match(handler, /const useDefaultProductQuantity = !editingPartId && partForm\.productQuantity === ""/);
+  assert.match(handler, /\.\.\.\(productQuantity === undefined \? \{\} : \{ productQuantity \}\)/);
+  assert.match(handler, /body: JSON\.stringify\(partRequestBody\)/);
+  assert.doesNotMatch(handler, /JSON\.stringify\(partForm\)/);
+});
+test("部件请求体不提交totalQuantity或三个累计数量", () => {
+  const handler = functionBody(source.orderManager, "async function savePart");
+  for (const field of ["totalQuantity", "outsourcedQuantity", "returnedQuantity", "missingQuantity", "status"]) {
+    assert.doesNotMatch(handler, new RegExp(`${field}\\s*:`));
+  }
+});
+test("产品和部件数量输入保留HTML正整数边界", () => {
+  assert.equal(occurrenceCount(source.orderManager, 'type="number" min="1" max={prismaIntMax} step="1"'), 3);
+});
+test("部件编辑表单不显示或编辑totalQuantity", () => {
+  const form = functionBody(source.orderManager, "function renderPartForm");
+  assert.doesNotMatch(form, /partTotalQuantity|calculatedTotalQuantity|readOnly[\s\S]*?应加工数量|应加工数量[\s\S]*?readOnly/);
+});
 test("订单详情状态继续只读显示", () => {
   assert.match(source.orderManager, /订单状态<\/dt><dd className="mt-1">\{getOrderStatusLabel\(order\.status\)\}<\/dd>/);
 });

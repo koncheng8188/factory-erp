@@ -169,6 +169,7 @@ const orderFlowSteps = [
   { status: "PARTIAL_DELIVERED", label: "部分送货" },
   { status: "COMPLETED", label: "已完成" }
 ];
+const prismaIntMax = 2_147_483_647;
 
 const emptyProductForm: ProductForm = {
   productName: "",
@@ -205,13 +206,10 @@ function formatDate(value: Date | string | null) {
   return input || "-";
 }
 
-function calculatedTotalQuantity(form: PartForm) {
-  const unitQuantity = Number(form.unitQuantity);
-  const productQuantity = Number(form.productQuantity);
-  if (!Number.isInteger(unitQuantity) || !Number.isInteger(productQuantity)) {
-    return 0;
-  }
-  return unitQuantity * productQuantity;
+function parsePositiveIntegerInput(value: string) {
+  if (!/^[1-9]\d*$/.test(value)) return null;
+  const quantity = Number(value);
+  return Number.isSafeInteger(quantity) && quantity <= prismaIntMax ? quantity : null;
 }
 
 type FlowState = "未开始" | "进行中" | "已完成" | "待外发" | "外发中" | "已外发" | "部分回厂" | "已回厂" | "待送货" | "部分送货" | "异常";
@@ -367,7 +365,6 @@ export function OrderDetailManager({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const partTotalQuantity = useMemo(() => calculatedTotalQuantity(partForm), [partForm]);
   const canCreateDelivery = useMemo(
     () => order.products.some((product) => product.status === "WAIT_DELIVERY" || product.status === "PARTIAL_DELIVERED"),
     [order.products]
@@ -733,15 +730,24 @@ export function OrderDetailManager({
       return;
     }
 
-    if (Number(productForm.quantity) <= 0) {
-      setError("产品数量必须大于 0。");
+    const quantity = parsePositiveIntegerInput(productForm.quantity);
+    if (quantity === null) {
+      setError(`产品数量必须是 1 到 ${prismaIntMax} 之间的正整数。`);
       return;
     }
 
+    const productRequestBody = {
+      productName: productForm.productName,
+      specification: productForm.specification,
+      material: productForm.material,
+      quantity,
+      surfaceTreatment: productForm.surfaceTreatment,
+      remark: productForm.remark
+    };
     const response = await fetch(editingProductId ? `/api/products/${editingProductId}` : `/api/orders/${order.id}/products`, {
       method: editingProductId ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(productForm)
+      body: JSON.stringify(productRequestBody)
     });
     const data = await response.json().catch(() => ({ error: "服务器返回了非 JSON 错误，请检查服务端日志。" }));
 
@@ -900,23 +906,36 @@ export function OrderDetailManager({
       setError("部件名称不能为空。");
       return;
     }
-    if (Number(partForm.unitQuantity) <= 0) {
-      setError("单套用量必须大于 0。");
-      return;
-    }
-    if (Number(partForm.productQuantity) <= 0) {
-      setError("产品数量必须大于 0。");
-      return;
-    }
-    if (partTotalQuantity < 0) {
-      setError("应加工数量不能为负数。");
+    const unitQuantity = parsePositiveIntegerInput(partForm.unitQuantity);
+    if (unitQuantity === null) {
+      setError(`单套用量必须是 1 到 ${prismaIntMax} 之间的正整数。`);
       return;
     }
 
+    const useDefaultProductQuantity = !editingPartId && partForm.productQuantity === "";
+    const productQuantity = useDefaultProductQuantity
+      ? undefined
+      : parsePositiveIntegerInput(partForm.productQuantity);
+    if (!useDefaultProductQuantity && productQuantity === null) {
+      setError(`产品数量必须是 1 到 ${prismaIntMax} 之间的正整数。`);
+      return;
+    }
+
+    const partRequestBody = {
+      partName: partForm.partName,
+      partCode: partForm.partCode,
+      specification: partForm.specification,
+      material: partForm.material,
+      unitQuantity,
+      ...(productQuantity === undefined ? {} : { productQuantity }),
+      surfaceTreatment: partForm.surfaceTreatment,
+      color: partForm.color,
+      remark: partForm.remark
+    };
     const response = await fetch(editingPartId ? `/api/parts/${editingPartId}` : `/api/products/${activePartProductId}/parts`, {
       method: editingPartId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(partForm)
+      body: JSON.stringify(partRequestBody)
     });
     const data = await response.json().catch(() => ({ error: "服务器返回了非 JSON 错误，请检查服务端日志。" }));
 
@@ -1158,15 +1177,11 @@ export function OrderDetailManager({
         </label>
         <label className="block text-sm font-medium">
           单套用量 <span className="text-red-600">*</span>
-          <input type="number" min="1" step="1" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.unitQuantity} onChange={(event) => updatePartField("unitQuantity", event.target.value)} />
+          <input type="number" min="1" max={prismaIntMax} step="1" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.unitQuantity} onChange={(event) => updatePartField("unitQuantity", event.target.value)} />
         </label>
         <label className="block text-sm font-medium">
           产品数量 <span className="text-red-600">*</span>
-          <input type="number" min="1" step="1" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.productQuantity} onChange={(event) => updatePartField("productQuantity", event.target.value)} />
-        </label>
-        <label className="block text-sm font-medium">
-          应加工数量
-          <input readOnly className="mt-1 w-full rounded-md border border-[#cfd6e1] bg-[#eef2f6] px-3 py-2" value={partTotalQuantity} />
+          <input type="number" min="1" max={prismaIntMax} step="1" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={partForm.productQuantity} onChange={(event) => updatePartField("productQuantity", event.target.value)} />
         </label>
         <label className="block text-sm font-medium">
           表面处理
@@ -1299,7 +1314,7 @@ export function OrderDetailManager({
           </label>
           <label className="block text-sm font-medium">
             数量 <span className="text-red-600">*</span>
-            <input type="number" min="1" step="1" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={productForm.quantity} onChange={(event) => updateProductField("quantity", event.target.value)} />
+            <input type="number" min="1" max={prismaIntMax} step="1" className="mt-1 w-full rounded-md border border-[#cfd6e1] px-3 py-2" value={productForm.quantity} onChange={(event) => updateProductField("quantity", event.target.value)} />
           </label>
           <label className="block text-sm font-medium">
             表面处理
