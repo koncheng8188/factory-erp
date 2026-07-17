@@ -220,9 +220,10 @@ test("file route 不降级为 drawing.view", () => {
   assert.doesNotMatch(fileGet, /requireApiPermission\("drawing\.view"\)/);
 });
 
-test("parts drawings route 同时导入两种鉴权助手", () => {
-  assert.match(source.partsDrawings, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
-  assert.match(source.partsDrawings, /import \{ requireApiUser \} from "@\/lib\/auth\/api-user"/);
+test("parts drawings route 同时导入读取与全权限鉴权助手", () => {
+  assert.match(source.partsDrawings, /requireApiPermission/);
+  assert.match(source.partsDrawings, /requireApiAllPermissions/);
+  assert.doesNotMatch(source.partsDrawings, /requireApiUser/);
 });
 
 test("parts drawings GET 使用 drawing.view", () => {
@@ -245,12 +246,9 @@ test("parts drawings GET 不再使用 requireApiUser", () => {
   assert.doesNotMatch(partsGet, /requireApiUser/);
 });
 
-test("parts drawings POST 仍使用 requireApiUser", () => {
-  assert.match(partsPost, /requireApiUser\(\)/);
-});
-
-test("parts drawings POST 未接入 requireApiPermission", () => {
-  assert.doesNotMatch(partsPost, /requireApiPermission/);
+test("parts drawings POST 使用完整上传权限而不回退 requireApiUser", () => {
+  assert.match(partsPost, /requireApiAllPermissions\(\[\s*"part\.view",\s*"drawing\.view",\s*"drawing\.upload"\s*\]\)/);
+  assert.doesNotMatch(partsPost, /requireApiUser/);
 });
 
 test("parts drawings POST 保留上传与写入关键代码", () => {
@@ -259,9 +257,9 @@ test("parts drawings POST 保留上传与写入关键代码", () => {
   assert.match(partsPost, /prisma\.partDrawing\.create/);
 });
 
-test("parts drawings GET 与 POST 使用不同鉴权策略", () => {
+test("parts drawings GET 与 POST 使用不同图纸权限策略", () => {
   assert.match(partsGet, /requireApiPermission/);
-  assert.match(partsPost, /requireApiUser/);
+  assert.match(partsPost, /requireApiAllPermissions/);
 });
 
 test("parts drawings route 没有全文件统一 drawing.view 鉴权", () => {
@@ -297,15 +295,51 @@ test("print-thumbnail route 已在 C2b-1 接入权限助手", () => {
   assert.doesNotMatch(source.printThumbnail, /requireApiUser/);
 });
 
-test("图纸 PATCH 与 DELETE 写接口未在 C2a 接入权限助手", () => {
-  assert.match(source.drawingWrite, /export async function PATCH/);
-  assert.match(source.drawingWrite, /export async function DELETE/);
-  assert.doesNotMatch(source.drawingWrite, /requireApiPermission/);
+test("图纸 PATCH、DELETE 和设主图接入各自精确权限", () => {
+  const drawingPatch = functionBody(source.drawingWrite, "PATCH");
+  const drawingDelete = functionBody(source.drawingWrite, "DELETE");
+  const drawingMainPost = functionBody(source.drawingMain, "POST");
+  assert.match(drawingPatch, /requireApiAllPermissions\(\[\s*"drawing\.view",\s*"drawing\.update"\s*\]\)/);
+  assert.match(drawingDelete, /requireApiAllPermissions\(\[\s*"drawing\.view",\s*"drawing\.obsolete"\s*\]\)/);
+  assert.match(drawingMainPost, /requireApiAllPermissions\(\[\s*"drawing\.view",\s*"drawing\.setMain"\s*\]\)/);
+  for (const handler of [drawingPatch, drawingDelete, drawingMainPost]) assert.doesNotMatch(handler, /requireApiUser/);
 });
 
-test("设主图写接口未在 C2a 接入权限助手", () => {
+test("四个图纸写接口鉴权早于资源、请求体、文件处理和写入", () => {
+  const drawingPatch = functionBody(source.drawingWrite, "PATCH");
+  const drawingDelete = functionBody(source.drawingWrite, "DELETE");
+  const drawingMainPost = functionBody(source.drawingMain, "POST");
+  for (const marker of ["await context.params", "prisma.productPart.findUnique", "request.formData()", "saveDrawingFile", "prisma.partDrawing.create"]) assertBefore(partsPost, "requireApiAllPermissions", marker);
+  assertBefore(partsPost, "prisma.productPart.findUnique", "request.formData()");
+  for (const marker of ["await context.params", "request.json()", "prisma.partDrawing.update"]) assertBefore(drawingPatch, "requireApiAllPermissions", marker);
+  for (const marker of ["await context.params", "prisma.partDrawing.findUnique", "prisma.$transaction"]) assertBefore(drawingMainPost, "requireApiAllPermissions", marker);
+  for (const marker of ["await context.params", "prisma.partDrawing.update"]) assertBefore(drawingDelete, "requireApiAllPermissions", marker);
+});
+
+test("PATCH 拒绝通过 OBSOLETE 绕过独立作废权限，DELETE 保持逻辑作废", () => {
+  const drawingPatch = functionBody(source.drawingWrite, "PATCH");
+  const drawingDelete = functionBody(source.drawingWrite, "DELETE");
+  assert.match(drawingPatch, /body\.status === "OBSOLETE"[\s\S]*?图纸作废请使用作废操作。[\s\S]*?status: 400/);
+  assertBefore(drawingPatch, "body.status === \"OBSOLETE\"", "prisma.partDrawing.update");
+  assert.doesNotMatch(drawingPatch, /drawing\.obsolete/);
+  assert.match(drawingDelete, /data: \{ status: "OBSOLETE", isMain: false \}/);
+  assert.doesNotMatch(drawingDelete, /partDrawing\.delete|deleteSavedDrawingFiles|\brm\(/);
+  assert.doesNotMatch(drawingDelete, /drawing\.delete/);
+});
+
+test("设主图接口保持 POST、目标图纸查询和原事务顺序", () => {
+  const drawingMainPost = functionBody(source.drawingMain, "POST");
   assert.match(source.drawingMain, /export async function POST/);
-  assert.doesNotMatch(source.drawingMain, /requireApiPermission/);
+  assert.match(drawingMainPost, /prisma\.partDrawing\.findUnique/);
+  assert.match(drawingMainPost, /where: \{ partId: drawing\.partId \}/);
+  assert.doesNotMatch(drawingMainPost, /productPart\.findUnique|part\.view/);
+});
+
+test("图纸上传保持 MIME 校验、文件保存与批量事务创建", () => {
+  assert.match(partsPost, /isAllowedDrawingFile/);
+  assert.match(partsPost, /saveDrawingFile/);
+  assert.match(partsPost, /prisma\.\$transaction/);
+  assert.match(partsPost, /existingCount === 0 && index === 0/);
 });
 
 test("文件服务保持 private-only 目录", () => {
@@ -385,9 +419,9 @@ test("原件 file 继续使用 drawing.viewOriginal", () => {
   assert.match(fileGet, /requireApiPermission\("drawing\.viewOriginal"\)/);
 });
 
-test("图纸写接口仍未接入 C2 权限", () => {
-  assert.doesNotMatch(source.drawingWrite, /requireApiPermission/);
-  assert.doesNotMatch(source.drawingMain, /requireApiPermission/);
+test("图纸写接口不提前接入 C3d-2 或 C3d-3 的错误和并发加固", () => {
+  assert.doesNotMatch(source.drawingWrite, /P2002|P2025|P2034|locked/i);
+  assert.doesNotMatch(source.drawingMain, /P2002|P2025|P2034|locked/i);
 });
 
 test("送货列表 route 导入统一 API 权限助手", () => {
@@ -636,10 +670,10 @@ test("客户写接口保持原字段白名单与成功响应", () => {
   assert.match(customerPut, /NextResponse\.json\(\{ customer \}\)/);
   assert.match(customerDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("C3c-2 写权限登记包含客户订单产品和部件十三个 protected 接口", () => {
+test("C3d-1 写权限登记包含十七个 protected 接口", () => {
   assert.match(source.writeRegistry, /const protectedHandlers = new Map/);
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 13\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 19\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 17\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 15\)/);
 });
 
 test("订单写 route 导入全部权限助手且不再导入登录助手", () => {

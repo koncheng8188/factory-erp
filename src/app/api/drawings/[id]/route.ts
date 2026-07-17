@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiAllPermissions } from "@/lib/auth/authorization";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -17,7 +17,10 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "drawing.view",
+    "drawing.update"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
@@ -25,13 +28,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const data: { status?: "PENDING" | "CONFIRMED" | "OBSOLETE"; remark?: string | null; isMain?: boolean } = {};
 
     if (body.status !== undefined) {
+      if (body.status === "OBSOLETE") {
+        return NextResponse.json({ error: "图纸作废请使用作废操作。" }, { status: 400 });
+      }
       if (typeof body.status !== "string" || !allowedStatuses.has(body.status)) {
         return NextResponse.json({ error: "图纸状态不正确。" }, { status: 400 });
       }
       data.status = body.status;
-      if (body.status === "OBSOLETE") {
-        data.isMain = false;
-      }
     }
 
     if (body.remark !== undefined) {
@@ -54,7 +57,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "drawing.view",
+    "drawing.obsolete"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;

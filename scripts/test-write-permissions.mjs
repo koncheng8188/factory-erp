@@ -19,6 +19,10 @@ const protectedHandlers = new Map([
   ["POST /api/orders/[id]/products", { stage: "C3c-1", permissions: ["order.view", "product.view", "product.create"] }],
   ["PUT /api/products/[id]", { stage: "C3c-1", permissions: ["product.view", "product.update"] }],
   ["DELETE /api/products/[id]", { stage: "C3c-1", permissions: ["product.view", "product.delete"] }],
+  ["POST /api/parts/[id]/drawings", { stage: "C3d-1", permissions: ["part.view", "drawing.view", "drawing.upload"] }],
+  ["PATCH /api/drawings/[id]", { stage: "C3d-1", permissions: ["drawing.view", "drawing.update"] }],
+  ["POST /api/drawings/[id]/main", { stage: "C3d-1", permissions: ["drawing.view", "drawing.setMain"] }],
+  ["DELETE /api/drawings/[id]", { stage: "C3d-1", permissions: ["drawing.view", "drawing.obsolete"] }],
   ["POST /api/products/[id]/parts", { stage: "C3c-2", permissions: ["product.view", "part.view", "part.create"] }],
   ["POST /api/products/[id]/whole-part", { stage: "C3c-2", permissions: ["product.view", "part.view", "part.create"] }],
   ["PATCH /api/parts/[id]", { stage: "C3c-2", permissions: ["part.view", "part.update"] }],
@@ -27,9 +31,6 @@ const protectedHandlers = new Map([
 
 const pendingHandlers = new Map([
   ["POST /api/delivery", "C3h"],
-  ["POST /api/drawings/[id]/main", "C3d"],
-  ["PATCH /api/drawings/[id]", "C3d"],
-  ["DELETE /api/drawings/[id]", "C3d"],
   ["POST /api/imports/excel/confirm", "C3i"],
   ["POST /api/imports/excel/preview", "C3i"],
   ["POST /api/imports/excel/simple-confirm", "C3i"],
@@ -41,7 +42,6 @@ const pendingHandlers = new Map([
   ["POST /api/parts/[id]/abnormal/resolve", "C3e"],
   ["POST /api/parts/[id]/abnormal", "C3e"],
   ["POST /api/parts/[id]/advance", "C3e"],
-  ["POST /api/parts/[id]/drawings", "C3d"],
   ["POST /api/products/[id]/mark-production-complete", "C3e"],
   ["POST /api/returns", "C3g"],
   ["POST /api/system/backup", "C3j"]
@@ -138,17 +138,21 @@ test("只排除登录和登出两个认证写接口", () => {
   assert.deepEqual([...allHandlers.keys()].filter((endpoint) => excludedHandlers.has(endpoint)).sort(), [...excludedHandlers].sort());
 });
 
-test("C3c-2 已保护接口精确为客户订单产品和部件十三个写 handler", () => {
-  assert.equal(protectedHandlers.size, 13);
+test("C3d-1 已保护接口精确为十七个写 handler", () => {
+  assert.equal(protectedHandlers.size, 17);
   assert.deepEqual([...protectedHandlers.keys()].sort(), [
     "DELETE /api/customers/[id]",
+    "DELETE /api/drawings/[id]",
     "DELETE /api/orders/[id]",
     "DELETE /api/parts/[id]",
     "DELETE /api/products/[id]",
+    "PATCH /api/drawings/[id]",
     "PATCH /api/parts/[id]",
     "POST /api/customers",
+    "POST /api/drawings/[id]/main",
     "POST /api/orders",
     "POST /api/orders/[id]/products",
+    "POST /api/parts/[id]/drawings",
     "POST /api/products/[id]/parts",
     "POST /api/products/[id]/whole-part",
     "PUT /api/customers/[id]",
@@ -157,8 +161,8 @@ test("C3c-2 已保护接口精确为客户订单产品和部件十三个写 hand
   ]);
 });
 
-test("待实施注册表精确为 19 个且均记录阶段", () => {
-  assert.equal(pendingHandlers.size, 19);
+test("待实施注册表精确为 15 个且均记录阶段", () => {
+  assert.equal(pendingHandlers.size, 15);
   for (const [endpoint, stage] of pendingHandlers) {
     assert.match(stage, /^C3[b-j]$/, `${endpoint} 缺少有效实施阶段`);
   }
@@ -173,7 +177,7 @@ test("每个业务写 handler 恰好属于已保护或待实施集合", () => {
   );
 });
 
-test("十三个已保护写 handler 使用精确的完整资源链权限组合", () => {
+test("十七个已保护写 handler 使用精确的完整资源链权限组合", () => {
   for (const [endpoint, definition] of protectedHandlers) {
     const handler = businessHandlers.get(endpoint);
     assert.ok(handler, `缺少 ${endpoint}`);
@@ -190,7 +194,7 @@ test("十三个已保护写 handler 使用精确的完整资源链权限组合",
   }
 });
 
-test("十三个已保护写路由统一使用全权限助手且不回退 requireApiUser", () => {
+test("十七个已保护写路由统一使用全权限助手且不回退 requireApiUser", () => {
   for (const endpoint of protectedHandlers.keys()) {
     const { source } = businessHandlers.get(endpoint);
     assert.match(source, /requireApiAllPermissions/);
@@ -198,7 +202,7 @@ test("十三个已保护写路由统一使用全权限助手且不回退 require
   }
 });
 
-test("十三个已保护写 handler 权限失败后立即返回", () => {
+test("十七个已保护写 handler 权限失败后立即返回", () => {
   for (const [endpoint] of protectedHandlers) {
     const { source, method } = businessHandlers.get(endpoint);
     assert.match(functionBody(source, method), /if \(!authResult\.ok\) return authResult\.response/, endpoint);
@@ -395,9 +399,34 @@ test("部件 PATCH 与 DELETE 分别检查自身权限", () => {
   assert.doesNotMatch(deleteBody, /part\.update/);
 });
 
-test("其余十九个 pending 接口完整保留", () => {
-  assert.equal(pendingHandlers.size, 19);
+test("其余十五个 pending 接口完整保留", () => {
+  assert.equal(pendingHandlers.size, 15);
   assert.equal([...pendingHandlers.keys()].some((endpoint) => endpoint.includes("/api/parts/[id]") && /^(PATCH|DELETE) /.test(endpoint)), false);
+});
+
+test("四个图纸写接口均已从 pending 移入 C3d-1 protected", () => {
+  const expected = [
+    "POST /api/parts/[id]/drawings",
+    "PATCH /api/drawings/[id]",
+    "POST /api/drawings/[id]/main",
+    "DELETE /api/drawings/[id]"
+  ];
+  for (const endpoint of expected) {
+    assert.equal(protectedHandlers.get(endpoint)?.stage, "C3d-1");
+    assert.equal(pendingHandlers.has(endpoint), false);
+  }
+});
+
+test("C3d-1 图纸写处理器鉴权均早于各自业务边界", () => {
+  for (const [endpoint, marker] of [
+    ["POST /api/parts/[id]/drawings", "saveDrawingFile"],
+    ["PATCH /api/drawings/[id]", "prisma.partDrawing.update"],
+    ["POST /api/drawings/[id]/main", "prisma.$transaction"],
+    ["DELETE /api/drawings/[id]", "prisma.partDrawing.update"]
+  ]) {
+    const handler = businessHandlers.get(endpoint);
+    assertBefore(functionBody(handler.source, handler.method), "requireApiAllPermissions", marker, endpoint);
+  }
 });
 
 test("订单编号生成显式要求 client 且不依赖全局 prisma", () => {

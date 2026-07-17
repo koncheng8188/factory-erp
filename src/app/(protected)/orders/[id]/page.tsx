@@ -37,6 +37,19 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
   const canViewDrawings = hasPermission(user.role, "drawing.view", []);
   const canViewOriginalDrawings =
     canViewDrawings && hasPermission(user.role, "drawing.viewOriginal", []);
+  const canUploadDrawing =
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "drawing.upload", []);
+  const canUpdateDrawing =
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "drawing.update", []);
+  const canSetMainDrawing =
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "drawing.setMain", []);
+  const canObsoleteDrawing =
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "drawing.obsolete", []);
   const canPrintOrder =
     canViewDrawings && hasPermission(user.role, "order.print", []);
 
@@ -268,6 +281,10 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         canDeletePart={canDeletePart}
         canViewDrawings={canViewDrawings}
         canViewOriginalDrawings={canViewOriginalDrawings}
+        canUploadDrawing={canUploadDrawing}
+        canUpdateDrawing={canUpdateDrawing}
+        canSetMainDrawing={canSetMainDrawing}
+        canObsoleteDrawing={canObsoleteDrawing}
         canPrintOrder={canPrintOrder}
       />
     </div>

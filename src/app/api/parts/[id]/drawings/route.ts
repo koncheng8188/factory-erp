@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { allowedDrawingFileMessage, deleteSavedDrawingFiles, isAllowedDrawingFile, saveDrawingFile } from "@/lib/drawing-files";
-import { requireApiPermission } from "@/lib/auth/authorization";
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiAllPermissions, requireApiPermission } from "@/lib/auth/authorization";
 import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
 
 type RouteContext = {
@@ -34,7 +33,11 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "part.view",
+    "drawing.view",
+    "drawing.upload"
+  ]);
   if (!authResult.ok) return authResult.response;
   const savedFiles: Awaited<ReturnType<typeof saveDrawingFile>>[] = [];
   try {

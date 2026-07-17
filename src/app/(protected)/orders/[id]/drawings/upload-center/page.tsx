@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { requirePagePermission } from "@/lib/auth/authorization";
+import { hasPermission } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { UploadCenterManager } from "./upload-center-manager";
 
@@ -10,6 +12,13 @@ type UploadCenterPageProps = {
 };
 
 export default async function UploadCenterPage({ params }: UploadCenterPageProps) {
+  const user = await requirePagePermission("order.view");
+  const canUploadDrawings =
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "drawing.upload", []);
+  if (!canUploadDrawings) redirect("/forbidden");
+
   const { id } = await params;
   const order = await prisma.order.findFirst({
     where: {

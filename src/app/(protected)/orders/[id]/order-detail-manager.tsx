@@ -159,7 +159,7 @@ type PartForm = {
   remark: string;
 };
 
-const drawingStatuses = ["PENDING", "CONFIRMED", "OBSOLETE"];
+const drawingStatuses = ["PENDING", "CONFIRMED"];
 const productionPartStatuses = new Set<ProductPartStatus>(["CUTTING", "WELDING", "POLISHING"]);
 const orderFlowSteps = [
   { status: "PENDING", label: "待处理" },
@@ -329,6 +329,10 @@ export function OrderDetailManager({
   canDeletePart,
   canViewDrawings,
   canViewOriginalDrawings,
+  canUploadDrawing,
+  canUpdateDrawing,
+  canSetMainDrawing,
+  canObsoleteDrawing,
   canPrintOrder
 }: {
   order: OrderDetail;
@@ -342,6 +346,10 @@ export function OrderDetailManager({
   canDeletePart: boolean;
   canViewDrawings: boolean;
   canViewOriginalDrawings: boolean;
+  canUploadDrawing: boolean;
+  canUpdateDrawing: boolean;
+  canSetMainDrawing: boolean;
+  canObsoleteDrawing: boolean;
   canPrintOrder: boolean;
 }) {
   const router = useRouter();
@@ -981,6 +989,7 @@ export function OrderDetailManager({
   }
   async function uploadDrawings(event: React.FormEvent<HTMLFormElement>, part: ProductPart) {
     event.preventDefault();
+    if (!canUploadDrawing) return;
     setMessage("");
     setError("");
     setUploadingPartId(part.id);
@@ -1005,6 +1014,7 @@ export function OrderDetailManager({
   }
 
   async function updateDrawingStatus(drawing: PartDrawing, status: string) {
+    if (!canUpdateDrawing) return;
     setMessage("");
     setError("");
 
@@ -1024,6 +1034,7 @@ export function OrderDetailManager({
   }
 
   async function setMainDrawing(drawing: PartDrawing) {
+    if (!canSetMainDrawing) return;
     setMessage("");
     setError("");
 
@@ -1039,6 +1050,7 @@ export function OrderDetailManager({
   }
 
   async function obsoleteDrawing(drawing: PartDrawing) {
+    if (!canObsoleteDrawing) return;
     if (!window.confirm(`确认作废图纸“${drawing.fileName}”吗？文件不会从磁盘删除。`)) {
       return;
     }
@@ -1076,18 +1088,20 @@ export function OrderDetailManager({
             <h4 className="font-semibold">图纸管理</h4>
             <p className="mt-1 text-xs text-[#667085]">支持 JPG、JPEG、PNG、WEBP、PDF；DWG/DXF 请先导出后上传。</p>
           </div>
-          <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => uploadDrawings(event, part)}>
-            <input
-              className="max-w-72 rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm"
-              type="file"
-              name="files"
-              multiple
-              accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
-            />
-            <button className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60" disabled={uploadingPartId === part.id}>
-              {uploadingPartId === part.id ? "上传中" : "上传图纸"}
-            </button>
-          </form>
+          {canUploadDrawing ? (
+            <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => uploadDrawings(event, part)}>
+              <input
+                className="max-w-72 rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm"
+                type="file"
+                name="files"
+                multiple
+                accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+              />
+              <button className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60" disabled={uploadingPartId === part.id}>
+                {uploadingPartId === part.id ? "上传中" : "上传图纸"}
+              </button>
+            </form>
+          ) : null}
         </div>
 
         {canViewDrawings && part.drawings.length === 0 ? (
@@ -1123,20 +1137,26 @@ export function OrderDetailManager({
                     <td className="border-b border-[#eef2f6] px-3 py-2">V{drawing.version}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-2">{drawing.isMain ? "是" : "否"}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-2">
-                      <select className="rounded-md border border-[#cfd6e1] px-2 py-1" value={drawing.status} onChange={(event) => updateDrawingStatus(drawing, event.target.value)}>
-                        {drawingStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
-                      </select>
+                      {canUpdateDrawing ? (
+                        <select className="rounded-md border border-[#cfd6e1] px-2 py-1" value={drawing.status} onChange={(event) => updateDrawingStatus(drawing, event.target.value)}>
+                          {drawingStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                        </select>
+                      ) : drawing.status}
                     </td>
                     <td className="border-b border-[#eef2f6] px-3 py-2">{drawing.uploadStatus}</td>
                     <td className="border-b border-[#eef2f6] px-3 py-2">
                       <div className="flex flex-wrap gap-2">
                         {canViewOriginalDrawings ? <a className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={drawing.originalUrl} target="_blank" rel="noreferrer">查看原图</a> : null}
-                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-50" disabled={drawing.isMain || drawing.status === "OBSOLETE"} onClick={() => setMainDrawing(drawing)}>
-                          设为主图
-                        </button>
-                        <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50" disabled={drawing.status === "OBSOLETE"} onClick={() => obsoleteDrawing(drawing)}>
-                          作废
-                        </button>
+                        {canSetMainDrawing ? (
+                          <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-50" disabled={drawing.isMain || drawing.status === "OBSOLETE"} onClick={() => setMainDrawing(drawing)}>
+                            设为主图
+                          </button>
+                        ) : null}
+                        {canObsoleteDrawing ? (
+                          <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50" disabled={drawing.status === "OBSOLETE"} onClick={() => obsoleteDrawing(drawing)}>
+                            作废
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

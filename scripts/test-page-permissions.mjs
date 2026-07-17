@@ -28,6 +28,8 @@ const files = {
   delivery: "src/app/(protected)/delivery/page.tsx",
   orderDetail: "src/app/(protected)/orders/[id]/page.tsx",
   orderManager: "src/app/(protected)/orders/[id]/order-detail-manager.tsx",
+  drawingUploadCenter: "src/app/(protected)/orders/[id]/drawings/upload-center/page.tsx",
+  drawingUploadCenterManager: "src/app/(protected)/orders/[id]/drawings/upload-center/upload-center-manager.tsx",
   production: "src/app/(protected)/production/page.tsx",
   productionManager: "src/app/(protected)/production/production-manager.tsx",
   productionDaily: "src/app/(protected)/production/daily/page.tsx",
@@ -529,9 +531,13 @@ test("图纸写 API 地址和方法保持不变", () => {
   assert.match(source.orderManager, /fetch\(`\/api\/drawings\/\$\{drawing\.id\}`, \{ method: "DELETE" \}\)/);
 });
 test("图纸上传中心链接继续保留", () => assert.match(source.orderManager, /\/orders\/\$\{order\.id\}\/drawings\/upload-center/));
-test("订单详情页与 Client Manager 不新增图纸写权限标志", () => {
-  assert.doesNotMatch(source.orderDetail, /can(?:Create|Update|Upload|SetMain|Obsolete)Drawing/);
-  assert.doesNotMatch(source.orderManager, /can(?:Create|Update|Upload|SetMain|Obsolete)Drawing/);
+test("订单详情页与 Client Manager 仅新增 C3d-1 的四个图纸写权限标志", () => {
+  for (const flag of ["canUploadDrawing", "canUpdateDrawing", "canSetMainDrawing", "canObsoleteDrawing"]) {
+    assert.match(source.orderDetail, new RegExp(flag));
+    assert.match(source.orderManager, new RegExp(flag));
+  }
+  assert.doesNotMatch(source.orderDetail, /canCreateDrawing|canDeleteDrawing/);
+  assert.doesNotMatch(source.orderManager, /canCreateDrawing|canDeleteDrawing/);
 });
 test("订单详情页计算 order.update 且使用空覆盖", () => assert.match(source.orderDetail, /const canUpdateOrder = hasPermission\(user\.role, "order\.update", \[\]\)/));
 test("订单详情页计算产品创建组合权限且使用空覆盖", () => {
@@ -1108,6 +1114,9 @@ test("仅已批准的读取 API 引用权限助手", async () => {
     "products/[id]/route.ts",
     "products/[id]/whole-part/route.ts",
     "parts/[id]/route.ts"
+    ,"parts/[id]/drawings/route.ts"
+    ,"drawings/[id]/route.ts"
+    ,"drawings/[id]/main/route.ts"
   ]);
   const { readdir } = await import("node:fs/promises");
   async function scan(directory) {
@@ -1123,6 +1132,54 @@ test("仅已批准的读取 API 引用权限助手", async () => {
     }
   }
   await scan(apiRoot);
+});
+
+test("订单详情页新增四个最小图纸写权限 Boolean", () => {
+  for (const [name, permissions] of [
+    ["canUploadDrawing", ["part.view", "drawing.view", "drawing.upload"]],
+    ["canUpdateDrawing", ["drawing.view", "drawing.update"]],
+    ["canSetMainDrawing", ["drawing.view", "drawing.setMain"]],
+    ["canObsoleteDrawing", ["drawing.view", "drawing.obsolete"]]
+  ]) {
+    const block = sourceSlice(source.orderDetail, `const ${name} =`, ";");
+    for (const permission of permissions) assert.match(block, new RegExp(`hasPermission\\(user\\.role, "${permission.replace(".", "\\.")}", \\[\\]\\)`));
+  }
+});
+
+test("订单详情只向 Client 传递四个图纸 Boolean，不泄露权限上下文", () => {
+  for (const name of ["canUploadDrawing", "canUpdateDrawing", "canSetMainDrawing", "canObsoleteDrawing"]) {
+    assert.match(source.orderDetail, new RegExp(`${name}=\\{${name}\\}`));
+    assert.match(source.orderManager, new RegExp(`${name}: boolean;`));
+  }
+  assert.doesNotMatch(source.orderDetail, /<(?:OrderDetailManager)[\\s\\S]*?(?:user=|role=|permissions=|overrides=)/);
+});
+
+test("订单详情图纸写入口由各自 Boolean 裁剪且处理函数防御性检查", () => {
+  assert.match(source.orderManager, /\{canUploadDrawing \? \([\s\S]*?<form className="flex flex-wrap items-center gap-2"/);
+  assert.match(source.orderManager, /async function uploadDrawings[\s\S]*?if \(!canUploadDrawing\) return;[\s\S]*?new FormData/);
+  assert.match(source.orderManager, /async function updateDrawingStatus[\s\S]*?if \(!canUpdateDrawing\) return;/);
+  assert.match(source.orderManager, /\{canUpdateDrawing \? \([\s\S]*?<select/);
+  assert.match(source.orderManager, /async function setMainDrawing[\s\S]*?if \(!canSetMainDrawing\) return;/);
+  assert.match(source.orderManager, /\{canSetMainDrawing \? \(/);
+  assert.match(source.orderManager, /async function obsoleteDrawing[\s\S]*?if \(!canObsoleteDrawing\) return;[\s\S]*?window\.confirm/);
+  assert.match(source.orderManager, /\{canObsoleteDrawing \? \(/);
+});
+
+test("图纸状态编辑不再提供 OBSOLETE，作废继续独立使用 DELETE", () => {
+  assert.match(source.orderManager, /const drawingStatuses = \["PENDING", "CONFIRMED"\]/);
+  assert.doesNotMatch(source.orderManager, /const drawingStatuses = \[[^\]]*"OBSOLETE"/);
+  assert.match(source.orderManager, /fetch\(`\/api\/drawings\/\$\{drawing\.id\}`, \{ method: "DELETE" \}\)/);
+});
+
+test("上传中心在 params 与 Prisma 前完成订单和完整图纸上传门禁", () => {
+  assert.match(source.drawingUploadCenter, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.drawingUploadCenter, /const user = await requirePagePermission\("order\.view"\)/);
+  for (const permission of ["part.view", "drawing.view", "drawing.upload"]) {
+    assert.match(source.drawingUploadCenter, new RegExp(`hasPermission\\(user\\.role, "${permission.replace(".", "\\.")}", \\[\\]\\)`));
+  }
+  for (const marker of ["await params", "prisma.order.findFirst", "notFound()"]) assertBefore(source.drawingUploadCenter, "if (!canUploadDrawings) redirect(\"/forbidden\")", marker);
+  assert.doesNotMatch(source.drawingUploadCenter, /cookies\(|session|role\s*(?:===|!==)/i);
+  assert.doesNotMatch(source.drawingUploadCenterManager, /hasPermission|requirePagePermission|role\s*(?:===|!==)|permissions|overrides/);
 });
 test("静态测试仅执行只读文件检查", async () => {
   const self = await readFile(fileURLToPath(import.meta.url), "utf8");
