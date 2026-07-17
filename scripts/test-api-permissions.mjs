@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -59,6 +60,10 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function sourceHash(value) {
+  return createHash("sha256").update(value).digest("hex").toUpperCase();
+}
+
 function sourceSlice(content, start, end) {
   const startIndex = content.indexOf(start);
   const endIndex = content.indexOf(end, startIndex + start.length);
@@ -96,6 +101,10 @@ const source = {
   partById: await readSource("src", "app", "api", "parts", "[id]", "route.ts"),
   wholePart: await readSource("src", "app", "api", "products", "[id]", "whole-part", "route.ts"),
   productPartIntegrity: await readSource("src", "lib", "product-part-integrity.ts"),
+  drawingUploadIntegrity: await readSource("src", "lib", "drawing-upload-integrity.ts"),
+  drawingFiles: await readSource("src", "lib", "drawing-files.ts"),
+  schema: await readSource("prisma", "schema.prisma"),
+  drawingVersionMigration: await readSource("prisma", "migrations", "20260717131524_add_part_drawing_version_unique", "migration.sql"),
   ordersLib: await readSource("src", "lib", "orders.ts"),
   writeRegistry: await readSource("scripts", "test-write-permissions.mjs"),
   pagePermissionTests: await readSource("scripts", "test-page-permissions.mjs"),
@@ -137,6 +146,11 @@ const partPatch = functionBody(source.partById, "PATCH");
 const partDelete = functionBody(source.partById, "DELETE");
 const partDeleteCatch = partDelete.slice(partDelete.lastIndexOf("} catch (error) {"));
 const wholePartPost = functionBody(source.wholePart, "POST");
+const versionRetryLoop = sourceSlice(
+  source.drawingUploadIntegrity,
+  "for (let attempt = 1; attempt <= MAX_VERSION_CREATE_ATTEMPTS; attempt += 1)",
+  "\n    throw new DrawingUploadError(500"
+);
 const partDeleteBusinessConflictMessage = String.raw`\u8be5\u90e8\u4ef6\u5df2\u6709\u56fe\u7eb8\u3001\u5916\u53d1\u6216\u56de\u5382\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664`;
 const partDeleteForeignKeyConflictMessage = String.raw`\u8be5\u90e8\u4ef6\u5df2\u6709\u4e1a\u52a1\u8bb0\u5f55\uff0c\u4e0d\u80fd\u5220\u9664`;
 
@@ -353,7 +367,7 @@ test("上传完整性服务锁定限制、三重验证与稳定文案", async ()
   assert.match(integrity, /sharp\(buffer\)\.metadata/);
   assert.match(integrity, /file\.type !== rule\.mime/);
   assert.match(integrity, /validSignature/);
-  assert.match(integrity, /prevalidateDrawingFiles\(files\)/);
+  assert.match(integrity, /prevalidateDrawingFiles\(files, dependencies\)/);
 });
 
 test("上传文件工具保持随机文件名、wx 写入和缩略图降级", async () => {
@@ -1136,4 +1150,161 @@ test("GET 权限 allowlist 继续精确保持十四条", () => {
   const match = /const permittedRoutes = new Set\(\[([\s\S]*?)\]\);/.exec(source.pagePermissionTests);
   assert.ok(match);
   assert.equal([...match[1].matchAll(/"[^"\n]+\/route\.ts"/g)].length, 14);
+});
+
+test("图纸 Schema 存在 partId 与 version 复合唯一约束", () => {
+  assert.match(source.schema, /@@unique\(\[partId, version\], map: "PartDrawing_partId_version_key"\)/);
+});
+
+test("图纸版本唯一约束映射名称保持稳定", () => {
+  assert.equal(occurrenceCount(source.schema, 'map: "PartDrawing_partId_version_key"'), 1);
+});
+
+test("新 migration 只创建图纸版本唯一索引", () => {
+  assert.equal(
+    source.drawingVersionMigration.trim(),
+    'CREATE UNIQUE INDEX "PartDrawing_partId_version_key"\nON "PartDrawing"("partId", "version");'
+  );
+});
+
+test("新 migration 不重建表或修改业务数据", () => {
+  assert.doesNotMatch(source.drawingVersionMigration, /\b(?:CREATE TABLE|DROP TABLE|ALTER TABLE|UPDATE|DELETE|INSERT)\b/i);
+  assert.equal(occurrenceCount(source.drawingVersionMigration, ";"), 1);
+});
+
+test("版本数据库创建最多尝试三次", () => {
+  assert.match(source.drawingUploadIntegrity, /MAX_VERSION_CREATE_ATTEMPTS = 3/);
+  assert.match(versionRetryLoop, /attempt <= MAX_VERSION_CREATE_ATTEMPTS/);
+});
+
+test("每次版本创建尝试都重新查询该 partId 最大版本", () => {
+  assert.match(versionRetryLoop, /partDrawing\.findFirst\(\{\s*where: \{ partId: part\.id \},\s*orderBy: \{ version: "desc" \}/);
+  assert.equal(occurrenceCount(versionRetryLoop, "partDrawing.findFirst"), 1);
+});
+
+test("最大版本查询不按 status 过滤并包含全部历史状态", () => {
+  const maxQuery = sourceSlice(versionRetryLoop, "client.partDrawing.findFirst", "\n      const startVersion");
+  assert.doesNotMatch(maxQuery, /status|isMain|createdAt/);
+});
+
+test("新批起始版本严格为历史 max 加一", () => {
+  assert.match(versionRetryLoop, /const startVersion = \(latestDrawing\?\.version \?\? 0\) \+ 1/);
+});
+
+test("同批文件按原顺序连续规划版本", () => {
+  assert.match(versionRetryLoop, /savedFiles\.map\(\(_savedFile, index\) => startVersion \+ index\)/);
+  assert.match(versionRetryLoop, /version: versions\[index\]/);
+});
+
+test("版本规划不使用 count、createdAt 或空缺补号", () => {
+  const planning = sourceSlice(versionRetryLoop, "const latestDrawing", "await dependencies?.beforeVersionCreateAttempt");
+  assert.doesNotMatch(planning, /\.count\(|createdAt|findMany|Math\.min/);
+});
+
+test("OBSOLETE 版本不会从最大值查询中排除", () => {
+  assert.doesNotMatch(versionRetryLoop, /NOT:\s*\{\s*status:\s*"OBSOLETE"|status:\s*\{\s*not:\s*"OBSOLETE"/);
+});
+
+test("数据库创建没有使用 skipDuplicates", () => {
+  assert.doesNotMatch(source.drawingUploadIntegrity, /skipDuplicates/);
+});
+
+test("P2002 使用 Prisma 运行时已知错误与精确 code 识别", () => {
+  assert.match(source.drawingUploadIntegrity, /error instanceof Prisma\.PrismaClientKnownRequestError && error\.code === "P2002"/);
+});
+
+test("P2002 前两次继续重试且第三次耗尽", () => {
+  assert.match(versionRetryLoop, /if \(attempt < MAX_VERSION_CREATE_ATTEMPTS\) continue/);
+  assert.match(versionRetryLoop, /throw new DrawingUploadError\(409, "图纸版本冲突，请重新上传。", error\)/);
+});
+
+test("P2002 耗尽返回精确 409 文案", () => {
+  assert.equal(occurrenceCount(source.drawingUploadIntegrity, "图纸版本冲突，请重新上传。"), 1);
+  assert.match(source.drawingUploadIntegrity, /DrawingUploadError\(409, "图纸版本冲突，请重新上传。"/);
+});
+
+test("文件预验证位于版本重试循环之外", () => {
+  assertBefore(
+    source.drawingUploadIntegrity,
+    "prevalidateDrawingFiles(files, dependencies)",
+    "for (let attempt = 1; attempt <= MAX_VERSION_CREATE_ATTEMPTS"
+  );
+});
+
+test("原图与缩略图保存位于版本重试循环之外", () => {
+  assertBefore(
+    source.drawingUploadIntegrity,
+    "savedFiles.push(await savePreparedDrawingFile",
+    "for (let attempt = 1; attempt <= MAX_VERSION_CREATE_ATTEMPTS"
+  );
+  assert.doesNotMatch(versionRetryLoop, /savePreparedDrawingFile|writeOriginal|createThumbnail|randomUUID|sharp\(/);
+});
+
+test("重试期间不重新读取客户端文件或运行 Sharp metadata", () => {
+  assert.doesNotMatch(versionRetryLoop, /arrayBuffer|validateImage|metadata\(\)/);
+});
+
+test("重试钩子位于版本规划后且数据库事务前", () => {
+  assertBefore(versionRetryLoop, "const versions =", "beforeVersionCreateAttempt");
+  assertBefore(versionRetryLoop, "beforeVersionCreateAttempt", "client.$transaction");
+});
+
+test("最终数据库失败统一清理本批已保存文件", () => {
+  assert.match(source.drawingUploadIntegrity, /catch \(error\) \{\s*await deleteSavedDrawingFiles\(savedFiles, storageRoot\);\s*throw error/);
+});
+
+test("P2003 保持 404 部件不存在且不进入 P2002 重试", () => {
+  assert.match(versionRetryLoop, /isPrismaForeignKeyError\(error\)[\s\S]*?DrawingUploadError\(404, "部件不存在。", error\)/);
+  assertBefore(versionRetryLoop, "isPrismaUniqueConstraintError(error)", "isPrismaForeignKeyError(error)");
+});
+
+test("其他数据库错误保持 500 保存图纸记录失败", () => {
+  assert.match(versionRetryLoop, /throw new DrawingUploadError\(500, "保存图纸记录失败。", error\)/);
+});
+
+test("主图 existingCount 读取位置和既有规则保持", () => {
+  assert.match(source.drawingUploadIntegrity, /const existingCount = await client\.partDrawing\.count\(\{ where: \{ partId: part\.id \} \}\)/);
+  assert.match(versionRetryLoop, /isMain: existingCount === 0 && index === 0/);
+  assertBefore(source.drawingUploadIntegrity, "const existingCount =", "savedFiles.push(await savePreparedDrawingFile");
+});
+
+test("上传 Route 内容保持原 SHA-256", () => {
+  assert.equal(sourceHash(source.partsDrawings), "CF91D65AA27FE522A2C958CC8648345A9405E657145391E1B5928F6EC72E9A10");
+});
+
+test("PATCH 与 DELETE Route 内容保持原 SHA-256", () => {
+  assert.equal(sourceHash(source.drawingWrite), "A3E9DBAB5A51BC8826090265D2B67F415E27A9BF96BCB99D4EAD9A95DE01A50B");
+});
+
+test("设主图 Route 内容保持原 SHA-256", () => {
+  assert.equal(sourceHash(source.drawingMain), "2604AA2EE51E1E203D67C4CCC5E8AEAB76C21269ACE4157B7BD5ACCB2272D36F");
+});
+
+test("既有 drawing-files 工具内容保持原 SHA-256", () => {
+  assert.equal(sourceHash(source.drawingFiles), "414046A869AEE95E499D63564043C1912ADA18EA004CCB8F45E391D49455EC43");
+});
+
+test("C3d-2 安全限制和缩略图降级方案 A 保持", () => {
+  for (const marker of [
+    "MAX_DRAWING_FILE_SIZE = 50 * 1024 * 1024",
+    "MAX_DRAWING_FILE_COUNT = 20",
+    "MAX_DRAWING_REQUEST_SIZE = 200 * 1024 * 1024",
+    'uploadStatus: "THUMBNAIL_FAILED"',
+    'errorMessage: "缩略图生成失败。"'
+  ]) {
+    assert.match(source.drawingUploadIntegrity, new RegExp(escapeRegExp(marker)));
+  }
+});
+
+test("图纸版本阶段没有引入 P2034 或 SQLite 锁重试", () => {
+  assert.doesNotMatch(source.drawingUploadIntegrity, /P2034|SQLITE_BUSY|database is locked|busy_timeout/i);
+});
+
+test("Schema 没有新增主图唯一索引", () => {
+  assert.doesNotMatch(source.schema, /@@unique\(\[[^\]]*isMain/);
+});
+
+test("API 静态测试仍不连接数据库、不启动服务或写文件", () => {
+  const blocked = ["@prisma" + "/client", "write" + "File", "append" + "File", "fetch" + "(", "spawn" + "("];
+  for (const marker of blocked) assert.equal(source.self.includes(marker), false, `测试脚本不得包含 ${marker}`);
 });

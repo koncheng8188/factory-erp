@@ -261,6 +261,7 @@ model PartDrawing {
   @@index([productId])
   @@index([partId])
   @@index([partId, status, isMain])
+  @@unique([partId, version], map: "PartDrawing_partId_version_key")
 }
 
 model OutsourceOrder {

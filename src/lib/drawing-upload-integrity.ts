@@ -9,6 +9,8 @@ type DrawingFileDependencies = {
   writeOriginal?: (targetPath: string, buffer: Buffer) => Promise<void>;
   randomId?: () => string;
   now?: () => number;
+  onImageMetadataValidated?: () => void;
+  beforeVersionCreateAttempt?: (context: { attempt: number; versions: readonly number[] }) => Promise<void>;
 };
 
 type PreparedDrawingFile = {
@@ -31,6 +33,7 @@ type SavedDrawingFile = {
 export const MAX_DRAWING_FILE_SIZE = 50 * 1024 * 1024;
 export const MAX_DRAWING_FILE_COUNT = 20;
 export const MAX_DRAWING_REQUEST_SIZE = 200 * 1024 * 1024;
+export const MAX_VERSION_CREATE_ATTEMPTS = 3;
 
 export class DrawingUploadError extends Error {
   readonly status: number;
@@ -141,16 +144,17 @@ function validSignature(type: PreparedDrawingFile["fileType"], buffer: Buffer) {
   return buffer.subarray(0, 5).toString("ascii") === "%PDF-";
 }
 
-async function validateImage(buffer: Buffer) {
+async function validateImage(buffer: Buffer, dependencies?: DrawingFileDependencies) {
   try {
     const metadata = await sharp(buffer).metadata();
     if (!Number.isInteger(metadata.width) || !Number.isInteger(metadata.height) || metadata.width <= 0 || metadata.height <= 0) throw new Error("invalid dimensions");
   } catch (error) {
     throw new DrawingUploadError(400, "图片文件损坏或格式不受支持。", error);
   }
+  dependencies?.onImageMetadataValidated?.();
 }
 
-export async function prevalidateDrawingFiles(files: readonly UploadFile[]): Promise<PreparedDrawingFile[]> {
+export async function prevalidateDrawingFiles(files: readonly UploadFile[], dependencies?: DrawingFileDependencies): Promise<PreparedDrawingFile[]> {
   if (files.length === 0) throw new DrawingUploadError(400, "请选择要上传的图纸文件。");
   if (files.length > MAX_DRAWING_FILE_COUNT) throw new DrawingUploadError(400, "单次最多上传 20 个图纸文件。");
   let totalSize = 0;
@@ -169,7 +173,7 @@ export async function prevalidateDrawingFiles(files: readonly UploadFile[]): Pro
     if (!validSignature(rule.type, buffer)) {
       throw new DrawingUploadError(400, rule.type === "pdf" ? "PDF文件格式无效。" : "仅支持 JPG、JPEG、PNG、WEBP 和 PDF 文件。");
     }
-    if (rule.type !== "pdf") await validateImage(buffer);
+    if (rule.type !== "pdf") await validateImage(buffer, dependencies);
     prepared.push({ fileName: file.name, fileType: rule.type, buffer });
   }
   return prepared;
@@ -177,6 +181,10 @@ export async function prevalidateDrawingFiles(files: readonly UploadFile[]): Pro
 
 export function isPrismaForeignKeyError(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003";
+}
+
+function isPrismaUniqueConstraintError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 export async function uploadDrawingBatch({
@@ -194,10 +202,8 @@ export async function uploadDrawingBatch({
   storageRoot?: string;
   dependencies?: DrawingFileDependencies;
 }) {
-  const prepared = await prevalidateDrawingFiles(files);
+  const prepared = await prevalidateDrawingFiles(files, dependencies);
   const existingCount = await client.partDrawing.count({ where: { partId: part.id } });
-  const latestDrawing = await client.partDrawing.findFirst({ where: { partId: part.id }, orderBy: { version: "desc" }, select: { version: true } });
-  const startVersion = latestDrawing ? latestDrawing.version + 1 : 1;
   const savedFiles: SavedDrawingFile[] = [];
   try {
     for (const file of prepared) {
@@ -207,22 +213,37 @@ export async function uploadDrawingBatch({
         throw new DrawingUploadError(500, "保存图纸文件失败。", error);
       }
     }
-    try {
-      const drawings = await client.$transaction(savedFiles.map((savedFile, index) =>
-        client.partDrawing.create({ data: {
-          orderId: part.orderId, productId: part.productId, partId: part.id,
-          fileName: savedFile.fileName, fileType: savedFile.fileType,
-          originalUrl: savedFile.originalUrl, thumbnailUrl: savedFile.thumbnailUrl,
-          printThumbnailUrl: savedFile.printThumbnailUrl, version: startVersion + index,
-          isMain: existingCount === 0 && index === 0, status: "PENDING",
-          uploadStatus: savedFile.uploadStatus, errorMessage: savedFile.errorMessage, remark
-        } })
-      ));
-      return { drawings, savedFiles };
-    } catch (error) {
-      if (isPrismaForeignKeyError(error)) throw new DrawingUploadError(404, "部件不存在。", error);
-      throw new DrawingUploadError(500, "保存图纸记录失败。", error);
+    for (let attempt = 1; attempt <= MAX_VERSION_CREATE_ATTEMPTS; attempt += 1) {
+      const latestDrawing = await client.partDrawing.findFirst({
+        where: { partId: part.id },
+        orderBy: { version: "desc" },
+        select: { version: true }
+      });
+      const startVersion = (latestDrawing?.version ?? 0) + 1;
+      const versions = savedFiles.map((_savedFile, index) => startVersion + index);
+      await dependencies?.beforeVersionCreateAttempt?.({ attempt, versions });
+      try {
+        const drawings = await client.$transaction(savedFiles.map((savedFile, index) =>
+          client.partDrawing.create({ data: {
+            orderId: part.orderId, productId: part.productId, partId: part.id,
+            fileName: savedFile.fileName, fileType: savedFile.fileType,
+            originalUrl: savedFile.originalUrl, thumbnailUrl: savedFile.thumbnailUrl,
+            printThumbnailUrl: savedFile.printThumbnailUrl, version: versions[index],
+            isMain: existingCount === 0 && index === 0, status: "PENDING",
+            uploadStatus: savedFile.uploadStatus, errorMessage: savedFile.errorMessage, remark
+          } })
+        ));
+        return { drawings, savedFiles };
+      } catch (error) {
+        if (isPrismaUniqueConstraintError(error)) {
+          if (attempt < MAX_VERSION_CREATE_ATTEMPTS) continue;
+          throw new DrawingUploadError(409, "图纸版本冲突，请重新上传。", error);
+        }
+        if (isPrismaForeignKeyError(error)) throw new DrawingUploadError(404, "部件不存在。", error);
+        throw new DrawingUploadError(500, "保存图纸记录失败。", error);
+      }
     }
+    throw new DrawingUploadError(500, "保存图纸记录失败。");
   } catch (error) {
     await deleteSavedDrawingFiles(savedFiles, storageRoot);
     throw error;
