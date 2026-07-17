@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 
@@ -6,8 +7,8 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+function isPrismaNotFound(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
 }
 
 export async function POST(_request: NextRequest, context: RouteContext) {
@@ -44,6 +45,10 @@ export async function POST(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ drawing: mainDrawing });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "设置主图失败。") }, { status: 500 });
+    console.error("设置主图失败", error);
+    if (isPrismaNotFound(error)) {
+      return NextResponse.json({ error: "图纸不存在。" }, { status: 404 });
+    }
+    return NextResponse.json({ error: "设置主图失败。" }, { status: 500 });
   }
 }

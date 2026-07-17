@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
 
@@ -12,8 +13,8 @@ function normalizeOptional(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+function isPrismaNotFound(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
@@ -24,7 +25,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
-    const body = await request.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json() as Record<string, unknown>;
+    } catch (error) {
+      console.error("解析图纸更新请求失败", error);
+      return NextResponse.json({ error: "图纸更新请求格式无效。" }, { status: 400 });
+    }
     const data: { status?: "PENDING" | "CONFIRMED" | "OBSOLETE"; remark?: string | null; isMain?: boolean } = {};
 
     if (body.status !== undefined) {
@@ -34,7 +41,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       if (typeof body.status !== "string" || !allowedStatuses.has(body.status)) {
         return NextResponse.json({ error: "图纸状态不正确。" }, { status: 400 });
       }
-      data.status = body.status;
+      data.status = body.status as "PENDING" | "CONFIRMED" | "OBSOLETE";
     }
 
     if (body.remark !== undefined) {
@@ -52,7 +59,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ drawing });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "更新图纸失败。") }, { status: 500 });
+    console.error("更新图纸失败", error);
+    if (isPrismaNotFound(error)) {
+      return NextResponse.json({ error: "图纸不存在。" }, { status: 404 });
+    }
+    return NextResponse.json({ error: "保存图纸失败。" }, { status: 500 });
   }
 }
 
@@ -71,6 +82,10 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ drawing });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "作废图纸失败。") }, { status: 500 });
+    console.error("作废图纸失败", error);
+    if (isPrismaNotFound(error)) {
+      return NextResponse.json({ error: "图纸不存在。" }, { status: 404 });
+    }
+    return NextResponse.json({ error: "作废图纸失败。" }, { status: 500 });
   }
 }

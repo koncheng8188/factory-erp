@@ -442,9 +442,38 @@ test("原件 file 继续使用 drawing.viewOriginal", () => {
   assert.match(fileGet, /requireApiPermission\("drawing\.viewOriginal"\)/);
 });
 
-test("图纸写接口不提前接入 C3d-2 或 C3d-3 的错误和并发加固", () => {
-  assert.doesNotMatch(source.drawingWrite, /P2002|P2025|P2034|locked/i);
-  assert.doesNotMatch(source.drawingMain, /P2002|P2025|P2034|locked/i);
+test("图纸 PATCH 以稳定语义处理无效 JSON、P2025 与未知错误", () => {
+  const drawingPatch = functionBody(source.drawingWrite, "PATCH");
+  assert.match(source.drawingWrite, /Prisma\.PrismaClientKnownRequestError/);
+  assert.match(source.drawingWrite, /error\.code === "P2025"/);
+  assertBefore(drawingPatch, "request.json()", "prisma.partDrawing.update");
+  assert.match(drawingPatch, /图纸更新请求格式无效。[\s\S]*?status: 400/);
+  assert.match(drawingPatch, /图纸不存在。[\s\S]*?status: 404/);
+  assert.match(drawingPatch, /保存图纸失败。[\s\S]*?status: 500/);
+  assert.doesNotMatch(drawingPatch, /errorMessage\(|error\.message/);
+});
+
+test("图纸 DELETE 保持逻辑作废并稳定映射 P2025 和未知错误", () => {
+  const drawingDelete = functionBody(source.drawingWrite, "DELETE");
+  assert.match(drawingDelete, /data: \{ status: "OBSOLETE", isMain: false \}/);
+  assert.match(drawingDelete, /图纸不存在。[\s\S]*?status: 404/);
+  assert.match(drawingDelete, /作废图纸失败。[\s\S]*?status: 500/);
+  assert.doesNotMatch(drawingDelete, /errorMessage\(|error\.message|partDrawing\.delete/);
+});
+
+test("设主图保持查询和事务顺序，并稳定映射 P2025 和未知错误", () => {
+  const drawingMainPost = functionBody(source.drawingMain, "POST");
+  assert.match(drawingMainPost, /已作废图纸不能设为主图。[\s\S]*?status: 400/);
+  assertBefore(drawingMainPost, "prisma.partDrawing.updateMany", "prisma.partDrawing.update({");
+  assert.match(drawingMainPost, /图纸不存在。[\s\S]*?status: 404/);
+  assert.match(drawingMainPost, /设置主图失败。[\s\S]*?status: 500/);
+  assert.doesNotMatch(drawingMainPost, /errorMessage\(|error\.message|part\.view/);
+});
+
+test("图纸 C3d-3a 不提前处理其他 Prisma 冲突或锁重试", () => {
+  for (const route of [source.drawingWrite, source.drawingMain]) {
+    assert.doesNotMatch(route, /P2002|P2034|locked|busy|retry/i);
+  }
 });
 
 test("送货列表 route 导入统一 API 权限助手", () => {
