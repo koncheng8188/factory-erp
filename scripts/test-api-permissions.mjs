@@ -56,6 +56,13 @@ function occurrenceCount(value, target) {
   return value.split(target).length - 1;
 }
 
+function assertAllPermissions(handler, permissions) {
+  const pattern = permissions
+    .map((permission) => `"${permission.replaceAll(".", "\\.")}"`)
+    .join(",\\s*");
+  assert.match(handler, new RegExp(`requireApiAllPermissions\\(\\[\\s*${pattern},?\\s*\\]\\)`));
+}
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -86,6 +93,10 @@ const source = {
   outsourcing: await readSource("src", "app", "api", "outsourcing", "route.ts"),
   returns: await readSource("src", "app", "api", "returns", "route.ts"),
   kitting: await readSource("src", "app", "api", "kitting", "[productId]", "route.ts"),
+  partAdvance: await readSource("src", "app", "api", "parts", "[id]", "advance", "route.ts"),
+  partAbnormal: await readSource("src", "app", "api", "parts", "[id]", "abnormal", "route.ts"),
+  partAbnormalResolve: await readSource("src", "app", "api", "parts", "[id]", "abnormal", "resolve", "route.ts"),
+  productionComplete: await readSource("src", "app", "api", "products", "[id]", "mark-production-complete", "route.ts"),
   productParts: await readSource("src", "app", "api", "products", "[id]", "parts", "route.ts"),
   backupList: await readSource("src", "app", "api", "system", "backup", "list", "route.ts"),
   backupCreate: await readSource("src", "app", "api", "system", "backup", "route.ts"),
@@ -127,6 +138,10 @@ const returnsGet = functionBody(source.returns, "GET");
 const returnsPost = functionBody(source.returns, "POST");
 const kittingGet = functionBody(source.kitting, "GET");
 const kittingPost = functionBody(source.kitting, "POST");
+const partAdvancePost = functionBody(source.partAdvance, "POST");
+const partAbnormalPost = functionBody(source.partAbnormal, "POST");
+const partAbnormalResolvePost = functionBody(source.partAbnormalResolve, "POST");
+const productionCompletePost = functionBody(source.productionComplete, "POST");
 const productPartsGet = functionBody(source.productParts, "GET");
 const productPartsPost = functionBody(source.productParts, "POST");
 const backupListGet = functionBody(source.backupList, "GET");
@@ -590,7 +605,7 @@ test("备份创建 route 尚未虚假接入读取权限", () => {
 });
 
 test("齐套 route 导入统一 API 权限助手", () => {
-  assert.match(source.kitting, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.kitting, /import \{ requireApiAllPermissions, requireApiPermission \} from "@\/lib\/auth\/authorization"/);
 });
 test("齐套 GET 只要求一次 kitting.view", () => {
   assert.equal(occurrenceCount(kittingGet, 'requireApiPermission("kitting.view")'), 1);
@@ -609,13 +624,118 @@ test("齐套 GET 鉴权早于齐套查询和原 404 判断", () => {
 test("齐套 GET 保持统一权限失败返回", () => {
   assert.match(kittingGet, /if \(!authResult\.ok\) return authResult\.response/);
 });
-test("齐套 POST 保持 requireApiUser 认证", () => {
-  assert.match(kittingPost, /requireApiUser\(\)/);
-  assert.doesNotMatch(kittingPost, /requireApiPermission/);
+test("齐套 POST 接入精确完整资源链和执行权限", () => {
+  assertAllPermissions(kittingPost, ["order.view", "product.view", "part.view", "kitting.view", "kitting.execute"]);
+  assert.doesNotMatch(kittingPost, /requireApiUser/);
 });
 test("齐套 POST 保留事务与刷新逻辑", () => {
   assert.match(kittingPost, /prisma\.\$transaction/);
   assert.match(kittingPost, /refreshProductKittingStatus/);
+});
+test("齐套 POST 鉴权早于 params 和事务", () => {
+  assertBefore(kittingPost, "requireApiAllPermissions", "context.params");
+  assertBefore(kittingPost, "requireApiAllPermissions", "prisma.$transaction");
+});
+test("齐套 POST 保持成功分支和错误语义", () => {
+  for (const marker of ["该产品未维护部件，不能齐套。", "missingParts", "数量已齐，但存在异常记录，请处理后再送货。", "齐套检查完成，产品已进入待送货。"]) {
+    assert.match(kittingPost, new RegExp(escapeRegExp(marker)));
+  }
+  assert.match(kittingPost, /errorMessage\(error, "执行齐套检查失败。"\)[\s\S]*?status: 500/);
+});
+test("齐套 POST 未提前实施自动回退或并发重试", () => {
+  assert.doesNotMatch(kittingPost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|retry/i);
+});
+
+test("推进部件精确要求五项生产权限", () => {
+  assertAllPermissions(partAdvancePost, ["order.view", "product.view", "part.view", "production.view", "production.updateProgress"]);
+});
+test("推进部件鉴权早于 params 和事务", () => {
+  assertBefore(partAdvancePost, "requireApiAllPermissions", "context.params");
+  assertBefore(partAdvancePost, "requireApiAllPermissions", "prisma.$transaction");
+});
+test("推进部件保持状态、日志、产品和订单联动", () => {
+  for (const marker of ["getNextPartStatus", "tx.productPart.update", "tx.productPartProgressLog.create", "syncProductStatusFromParts", 'data: { status: "PRODUCING" }']) {
+    assert.match(partAdvancePost, new RegExp(escapeRegExp(marker)));
+  }
+  assert.doesNotMatch(partAdvancePost, /returnedQuantity|missingQuantity|outsourcedQuantity/);
+});
+test("推进部件保持原错误语义且无并发加固", () => {
+  assert.match(partAdvancePost, /errorMessage\(error, "推进部件状态失败。"\)[\s\S]*?status: 400/);
+  assert.doesNotMatch(partAdvancePost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|updateMany/i);
+});
+
+test("登记异常精确要求五项生产权限", () => {
+  assertAllPermissions(partAbnormalPost, ["order.view", "product.view", "part.view", "production.view", "production.reportAbnormal"]);
+});
+test("登记异常鉴权早于 params、JSON 和事务", () => {
+  for (const marker of ["context.params", "request.json()", "prisma.$transaction"]) {
+    assertBefore(partAbnormalPost, "requireApiAllPermissions", marker);
+  }
+});
+test("登记异常保持 OPEN 查询、创建和状态同步", () => {
+  for (const marker of ['status: "OPEN"', "tx.productPartAbnormal.create", 'data: { status: "ABNORMAL" }', "syncProductStatusFromParts"]) {
+    assert.match(partAbnormalPost, new RegExp(escapeRegExp(marker)));
+  }
+});
+test("登记异常保持原错误和并发现状", () => {
+  assert.match(partAbnormalPost, /message === "部件不存在。" \? 404 : 400/);
+  assert.doesNotMatch(partAbnormalPost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|updateMany/i);
+});
+
+test("处理异常精确要求五项生产权限", () => {
+  assertAllPermissions(partAbnormalResolvePost, ["order.view", "product.view", "part.view", "production.abnormal.view", "production.resolveAbnormal"]);
+});
+test("处理异常鉴权早于 params、JSON 和事务", () => {
+  for (const marker of ["context.params", "request.json()", "prisma.$transaction"]) {
+    assertBefore(partAbnormalResolvePost, "requireApiAllPermissions", marker);
+  }
+});
+test("处理异常保持任意非 ABNORMAL 恢复规则和原更新", () => {
+  assert.match(partAbnormalResolvePost, /!isProductPartStatus\(restoreStatusValue\) \|\| restoreStatusValue === "ABNORMAL"/);
+  for (const marker of ['status: "RESOLVED"', "resolvedAt: new Date()", "status: restoreStatus", "syncProductStatusFromParts"]) {
+    assert.match(partAbnormalResolvePost, new RegExp(escapeRegExp(marker)));
+  }
+  assert.doesNotMatch(partAbnormalResolvePost, /fromStatus/);
+});
+test("处理异常保持原错误和并发现状", () => {
+  assert.match(partAbnormalResolvePost, /message === "未找到未处理的生产异常。" \? 404 : 400/);
+  assert.doesNotMatch(partAbnormalResolvePost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|updateMany/i);
+});
+
+test("标记生产完成精确要求五项生产权限", () => {
+  assertAllPermissions(productionCompletePost, ["order.view", "product.view", "part.view", "production.view", "production.completeProduct"]);
+});
+test("标记生产完成鉴权早于 params 和事务", () => {
+  assertBefore(productionCompletePost, "requireApiAllPermissions", "context.params");
+  assertBefore(productionCompletePost, "requireApiAllPermissions", "prisma.$transaction");
+});
+test("标记生产完成保持数量和 WAIT_DELIVERY 快速完成语义", () => {
+  assert.match(productionCompletePost, /returnedQuantity: part\.totalQuantity/);
+  assert.match(productionCompletePost, /missingQuantity: 0/);
+  assert.match(productionCompletePost, /status: "RETURNED"/);
+  assert.equal(occurrenceCount(productionCompletePost, 'data: { status: "WAIT_DELIVERY" }'), 2);
+  assert.doesNotMatch(productionCompletePost, /outsourcedQuantity:\s*(?:0|part\.)/);
+});
+test("标记生产完成保持成功、错误和并发现状", () => {
+  assert.match(productionCompletePost, /NextResponse\.json\(\{ success: true \}\)/);
+  assert.match(
+    productionCompletePost,
+    /jsonError\(errorMessage\(error,\s*"\\u6807\\u8bb0\\u751f\\u4ea7\\u5b8c\\u6210\\u5931\\u8d25"\)\)/,
+  );
+  assert.doesNotMatch(productionCompletePost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|updateMany/i);
+});
+
+test("五个 C3e-1 Route 均移除 requireApiUser 并立即返回权限失败", () => {
+  for (const [routeSource, handler] of [
+    [source.partAdvance, partAdvancePost],
+    [source.partAbnormal, partAbnormalPost],
+    [source.partAbnormalResolve, partAbnormalResolvePost],
+    [source.productionComplete, productionCompletePost],
+    [source.kitting, kittingPost]
+  ]) {
+    assert.doesNotMatch(routeSource, /requireApiUser/);
+    assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/);
+  }
 });
 test("产品部件 route 导入全部权限助手", () => {
   assert.match(source.productParts, /import \{ requireApiAllPermissions \} from "@\/lib\/auth\/authorization"/);
@@ -739,10 +859,10 @@ test("客户写接口保持原字段白名单与成功响应", () => {
   assert.match(customerPut, /NextResponse\.json\(\{ customer \}\)/);
   assert.match(customerDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("C3d-1 写权限登记包含十七个 protected 接口", () => {
+test("C3e-1 写权限登记包含二十二个 protected 接口", () => {
   assert.match(source.writeRegistry, /const protectedHandlers = new Map/);
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 17\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 15\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 22\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 10\)/);
 });
 
 test("订单写 route 导入全部权限助手且不再导入登录助手", () => {

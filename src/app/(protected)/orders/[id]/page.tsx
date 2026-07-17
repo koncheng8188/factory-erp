@@ -52,6 +52,12 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
     hasPermission(user.role, "drawing.obsolete", []);
   const canPrintOrder =
     canViewDrawings && hasPermission(user.role, "order.print", []);
+  const canCompleteProductionProduct =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "production.view", []) &&
+    hasPermission(user.role, "production.completeProduct", []);
 
   const { id } = await params;
   const [order, customers] = await Promise.all([
@@ -286,6 +292,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         canSetMainDrawing={canSetMainDrawing}
         canObsoleteDrawing={canObsoleteDrawing}
         canPrintOrder={canPrintOrder}
+        canCompleteProductionProduct={canCompleteProductionProduct}
       />
     </div>
   );

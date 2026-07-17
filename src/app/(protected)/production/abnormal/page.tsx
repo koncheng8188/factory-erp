@@ -102,6 +102,12 @@ function StatCard({ title, value, tone = "normal" }: { title: string; value: num
 export default async function ProductionAbnormalPage({ searchParams }: ProductionAbnormalPageProps) {
   const user = await requirePagePermission("production.abnormal.view");
   const canPrintAbnormal = hasPermission(user.role, "production.abnormal.print", []);
+  const canResolveProductionAbnormal =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "production.abnormal.view", []) &&
+    hasPermission(user.role, "production.resolveAbnormal", []);
 
   const params = await searchParams;
   const status = parseStatusFilter(firstQueryValue(params?.status).trim());
@@ -287,7 +293,11 @@ export default async function ProductionAbnormalPage({ searchParams }: Productio
                   <td className="max-w-xs border-b border-[#eef2f6] px-3 py-3">{displayValue(abnormal.resolvedRemark)}</td>
                   <td className="border-b border-[#eef2f6] px-3 py-3">
                     {abnormal.status === "OPEN" ? (
-                      <AbnormalResolveActions productPartId={abnormal.productPartId} fromStatus={abnormal.fromStatus} />
+                      <AbnormalResolveActions
+                        productPartId={abnormal.productPartId}
+                        fromStatus={abnormal.fromStatus}
+                        canResolveProductionAbnormal={canResolveProductionAbnormal}
+                      />
                     ) : (
                       <span className="text-sm text-[#667085]">-</span>
                     )}

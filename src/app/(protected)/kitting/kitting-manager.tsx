@@ -57,10 +57,12 @@ function kittingLabel(product: KittingProduct) {
 
 export function KittingManager({
   products,
-  selectedProductId
+  selectedProductId,
+  canExecuteKitting
 }: {
   products: KittingProduct[];
   selectedProductId: string | null;
+  canExecuteKitting: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -84,6 +86,8 @@ export function KittingManager({
   }
 
   async function checkProduct(product: KittingProduct) {
+    if (!canExecuteKitting) return;
+
     setMessage("");
     setError("");
     setCheckingProductId(product.id);
@@ -166,14 +170,16 @@ export function KittingManager({
                           >
                             {isExpanded ? "收起明细" : "查看明细"}
                           </button>
-                          <button
-                            className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-                            type="button"
-                            disabled={isPending || checkingProductId === product.id}
-                            onClick={() => checkProduct(product)}
-                          >
-                            {checkingProductId === product.id ? "检查中" : "执行齐套检查"}
-                          </button>
+                          {canExecuteKitting ? (
+                            <button
+                              className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+                              type="button"
+                              disabled={isPending || checkingProductId === product.id}
+                              onClick={() => checkProduct(product)}
+                            >
+                              {checkingProductId === product.id ? "检查中" : "执行齐套检查"}
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>

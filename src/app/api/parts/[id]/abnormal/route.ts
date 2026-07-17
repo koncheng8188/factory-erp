@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
+import { requireApiAllPermissions } from "@/lib/auth/authorization";
 import { syncProductStatusFromParts } from "@/lib/product-progress";
 import { prisma } from "@/lib/prisma";
-import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -20,7 +20,13 @@ function normalizeReason(value: unknown) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "product.view",
+    "part.view",
+    "production.view",
+    "production.reportAbnormal",
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;

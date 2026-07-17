@@ -36,6 +36,7 @@ const files = {
   dailyPrintButton: "src/app/(protected)/production/daily/daily-print-button.tsx",
   productionAbnormal: "src/app/(protected)/production/abnormal/page.tsx",
   abnormalPrintButton: "src/app/(protected)/production/abnormal/abnormal-print-button.tsx",
+  abnormalResolveActions: "src/app/(protected)/production/abnormal/abnormal-resolve-actions.tsx",
   outsourceDetail: "src/app/(protected)/outsourcing/[id]/page.tsx",
   returnDetail: "src/app/(protected)/returns/[id]/page.tsx",
   deliveryDetail: "src/app/(protected)/delivery/[id]/page.tsx",
@@ -766,7 +767,7 @@ test("生产进度页将打印权限布尔值传入 Client Manager", () => {
 });
 test("ProductionManager 声明并接收打印权限 prop", () => {
   assert.match(source.productionManager, /canPrintProduction: boolean/);
-  assert.match(source.productionManager, /\{ products, filters, canPrintProduction \}/);
+  assert.match(source.productionManager, /products,[\s\S]*?filters,[\s\S]*?canPrintProduction/);
 });
 test("生产进度官方打印按钮受明确 JSX 权限边界控制", () => {
   const header = sourceSlice(source.productionManager, '<div className="flex flex-wrap gap-3">', "</div>\n      </section>");
@@ -1003,9 +1004,136 @@ test("齐套页面保留原产品订单部件查询和数据转换", () => {
   assert.match(kittingPageBody, /orderBy: \{ createdAt: "desc" \}/);
   assert.match(kittingPageBody, /const kittingProducts = products\.map/);
 });
-test("齐套执行入口保持且页面未提前接入 kitting.execute", () => {
+test("齐套执行入口保持且页面接入 kitting.execute", () => {
   assert.match(source.kittingManager, /fetch\(`\/api\/kitting\/\$\{product\.id\}`, \{ method: "POST" \}\)/);
-  assert.doesNotMatch(kittingPageBody, /kitting\.execute/);
+  assert.match(kittingPageBody, /kitting\.execute/);
+});
+
+test("生产推进 Boolean 精确使用五项权限和空覆盖", () => {
+  const block = sourceSlice(source.production, "const canUpdateProductionProgress =", "const canReportProductionAbnormal =");
+  for (const permission of ["order.view", "product.view", "part.view", "production.view", "production.updateProgress"]) {
+    assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
+  }
+});
+test("生产异常登记 Boolean 精确使用五项权限和空覆盖", () => {
+  const block = sourceSlice(source.production, "const canReportProductionAbnormal =", "\n\n  const params");
+  for (const permission of ["order.view", "product.view", "part.view", "production.view", "production.reportAbnormal"]) {
+    assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
+  }
+});
+test("生产页面独立传递两个最小写权限 Boolean", () => {
+  const manager = sourceSlice(source.production, "<ProductionManager", "/>");
+  assert.match(manager, /canUpdateProductionProgress=\{canUpdateProductionProgress\}/);
+  assert.match(manager, /canReportProductionAbnormal=\{canReportProductionAbnormal\}/);
+  assert.doesNotMatch(manager, /\b(?:user|role|permissions|overrides)=/);
+});
+test("生产 Client 声明两个独立写权限 Boolean", () => {
+  assert.match(source.productionManager, /canUpdateProductionProgress: boolean/);
+  assert.match(source.productionManager, /canReportProductionAbnormal: boolean/);
+  assert.doesNotMatch(source.productionManager, /canManageProduction/);
+});
+test("推进按钮由 canUpdateProductionProgress 进行 DOM 裁剪", () => {
+  assert.match(source.productionManager, /\{canUpdateProductionProgress \? \([\s\S]*?advancePart\(part\)[\s\S]*?\) : null\}/);
+  assert.doesNotMatch(source.productionManager, /disabled=\{!?canUpdateProductionProgress\}/);
+});
+test("推进处理函数在设置状态和 fetch 前防御权限", () => {
+  const body = functionBody(source.productionManager, "async function advancePart");
+  assertBefore(body, "if (!canUpdateProductionProgress) return", 'setMessage("")');
+  assertBefore(body, "if (!canUpdateProductionProgress) return", "fetch(");
+});
+test("异常登记入口和模态框由独立 Boolean 防御", () => {
+  const renderButton = functionBody(source.productionManager, "function renderAbnormalButton");
+  const openModal = functionBody(source.productionManager, "function openAbnormalModal");
+  assertBefore(renderButton, "if (!canReportProductionAbnormal) return null", "return (");
+  assertBefore(openModal, "if (!canReportProductionAbnormal) return", "setAbnormalTarget");
+});
+test("异常登记提交函数在请求体和 fetch 前防御权限", () => {
+  const body = functionBody(source.productionManager, "async function registerAbnormal");
+  assertBefore(body, "if (!canReportProductionAbnormal) return", "JSON.stringify");
+  assertBefore(body, "if (!canReportProductionAbnormal) return", "fetch(");
+});
+
+test("异常处理 Boolean 精确使用五项权限和空覆盖", () => {
+  const block = sourceSlice(source.productionAbnormal, "const canResolveProductionAbnormal =", "\n\n  const params");
+  for (const permission of ["order.view", "product.view", "part.view", "production.abnormal.view", "production.resolveAbnormal"]) {
+    assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
+  }
+});
+test("异常页面只向处理组件传最小 Boolean", () => {
+  const component = sourceSlice(source.productionAbnormal, "<AbnormalResolveActions", "/>");
+  assert.match(component, /canResolveProductionAbnormal=\{canResolveProductionAbnormal\}/);
+  assert.doesNotMatch(component, /\b(?:user|role|permissions|overrides)=/);
+});
+test("无异常处理权限时编辑和确认入口不进入 DOM", () => {
+  assert.match(source.abnormalResolveActions, /if \(!canResolveProductionAbnormal\) return null/);
+  assert.doesNotMatch(source.abnormalResolveActions, /disabled=\{!?canResolveProductionAbnormal\}/);
+});
+test("异常处理函数在 JSON 和 fetch 前防御权限", () => {
+  const body = functionBody(source.abnormalResolveActions, "async function resolveAbnormal");
+  assertBefore(body, "if (!canResolveProductionAbnormal) return", "JSON.stringify");
+  assertBefore(body, "if (!canResolveProductionAbnormal) return", "fetch(");
+});
+
+test("订单详情生产完成 Boolean 精确使用五项权限和空覆盖", () => {
+  const block = sourceSlice(source.orderDetail, "const canCompleteProductionProduct =", "\n\n  const { id }");
+  for (const permission of ["order.view", "product.view", "part.view", "production.view", "production.completeProduct"]) {
+    assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
+  }
+});
+test("订单详情只新增并传递生产完成最小 Boolean", () => {
+  assert.match(source.orderDetail, /canCompleteProductionProduct=\{canCompleteProductionProduct\}/);
+  assert.match(source.orderManager, /canCompleteProductionProduct: boolean/);
+  assert.doesNotMatch(source.orderDetail, /canUpdateProductionProgress|canReportProductionAbnormal|canExecuteKitting/);
+});
+test("订单详情既有写权限 Boolean 全部保持", () => {
+  for (const name of ["canUpdateOrder", "canCreateProduct", "canUpdateProduct", "canDeleteProduct", "canCreatePart", "canUpdatePart", "canDeletePart", "canUploadDrawing", "canUpdateDrawing", "canSetMainDrawing", "canObsoleteDrawing"]) {
+    assert.match(source.orderDetail, new RegExp(`${name}=\\{${name}\\}`));
+  }
+});
+test("生产完成按钮由独立 Boolean 进行 DOM 裁剪", () => {
+  assert.match(source.orderManager, /\{canCompleteProductionProduct \? \([\s\S]*?markProductionComplete\(product\)[\s\S]*?\) : null\}/);
+  assert.doesNotMatch(source.orderManager, /disabled=\{!?canCompleteProductionProduct\}/);
+});
+test("生产完成处理函数在确认框前防御权限", () => {
+  const body = functionBody(source.orderManager, "async function markProductionComplete");
+  assertBefore(body, "if (!canCompleteProductionProduct) return", "window.confirm");
+});
+
+test("齐套执行 Boolean 精确使用五项权限和空覆盖", () => {
+  const block = sourceSlice(source.kitting, "const canExecuteKitting =", "\n\n  const { productId }");
+  for (const permission of ["order.view", "product.view", "part.view", "kitting.view", "kitting.execute"]) {
+    assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
+  }
+});
+test("齐套页面只向 Client 传执行 Boolean", () => {
+  const manager = sourceSlice(source.kitting, "<KittingManager", "/>");
+  assert.match(manager, /canExecuteKitting=\{canExecuteKitting\}/);
+  assert.doesNotMatch(manager, /\b(?:user|role|permissions|overrides)=/);
+});
+test("齐套执行按钮由 canExecuteKitting 进行 DOM 裁剪", () => {
+  assert.match(source.kittingManager, /\{canExecuteKitting \? \([\s\S]*?checkProduct\(product\)[\s\S]*?\) : null\}/);
+  assert.doesNotMatch(source.kittingManager, /disabled=\{!?canExecuteKitting\}/);
+});
+test("齐套处理函数在加载状态和 fetch 前防御权限", () => {
+  const body = functionBody(source.kittingManager, "async function checkProduct");
+  assertBefore(body, "if (!canExecuteKitting) return", 'setMessage("")');
+  assertBefore(body, "if (!canExecuteKitting) return", "fetch(");
+});
+test("五个 C3e-1 Client 不读取角色或完整权限", () => {
+  for (const key of ["productionManager", "abnormalResolveActions", "orderManager", "kittingManager"]) {
+    assert.doesNotMatch(source[key], /hasPermission|permissions\s*:|role\s*(?:===|!==)|cookies\(|document\.cookie|session/i);
+  }
+});
+test("五个 C3e-1 权限入口不使用 CSS 隐藏", () => {
+  for (const [key, permissionName] of [
+    ["productionManager", "canUpdateProductionProgress"],
+    ["productionManager", "canReportProductionAbnormal"],
+    ["abnormalResolveActions", "canResolveProductionAbnormal"],
+    ["orderManager", "canCompleteProductionProduct"],
+    ["kittingManager", "canExecuteKitting"]
+  ]) {
+    assert.doesNotMatch(source[key], new RegExp(`(?:hidden|invisible)[\\s\\S]{0,160}${permissionName}|${permissionName}[\\s\\S]{0,160}(?:hidden|invisible)`));
+  }
 });
 
 test("全局导入页面导入页面权限助手", () => assert.match(source.excelImport, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
@@ -1117,6 +1245,10 @@ test("仅已批准的读取 API 引用权限助手", async () => {
     ,"parts/[id]/drawings/route.ts"
     ,"drawings/[id]/route.ts"
     ,"drawings/[id]/main/route.ts"
+    ,"parts/[id]/advance/route.ts"
+    ,"parts/[id]/abnormal/route.ts"
+    ,"parts/[id]/abnormal/resolve/route.ts"
+    ,"products/[id]/mark-production-complete/route.ts"
   ]);
   const { readdir } = await import("node:fs/promises");
   async function scan(directory) {

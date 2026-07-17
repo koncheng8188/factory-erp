@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireApiPermission } from "@/lib/auth/authorization";
+import { requireApiAllPermissions, requireApiPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { getProductKitting, refreshProductKittingStatus } from "@/lib/kitting";
-import { requireApiUser } from "@/lib/auth/api-user";
 
 type RouteContext = {
   params: Promise<{ productId: string }>;
@@ -30,7 +29,13 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function POST(_request: Request, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "product.view",
+    "part.view",
+    "kitting.view",
+    "kitting.execute",
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { productId } = await context.params;

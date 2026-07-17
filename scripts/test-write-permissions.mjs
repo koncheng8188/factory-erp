@@ -26,7 +26,12 @@ const protectedHandlers = new Map([
   ["POST /api/products/[id]/parts", { stage: "C3c-2", permissions: ["product.view", "part.view", "part.create"] }],
   ["POST /api/products/[id]/whole-part", { stage: "C3c-2", permissions: ["product.view", "part.view", "part.create"] }],
   ["PATCH /api/parts/[id]", { stage: "C3c-2", permissions: ["part.view", "part.update"] }],
-  ["DELETE /api/parts/[id]", { stage: "C3c-2", permissions: ["part.view", "part.delete"] }]
+  ["DELETE /api/parts/[id]", { stage: "C3c-2", permissions: ["part.view", "part.delete"] }],
+  ["POST /api/parts/[id]/advance", { stage: "C3e-1", permissions: ["order.view", "product.view", "part.view", "production.view", "production.updateProgress"] }],
+  ["POST /api/parts/[id]/abnormal", { stage: "C3e-1", permissions: ["order.view", "product.view", "part.view", "production.view", "production.reportAbnormal"] }],
+  ["POST /api/parts/[id]/abnormal/resolve", { stage: "C3e-1", permissions: ["order.view", "product.view", "part.view", "production.abnormal.view", "production.resolveAbnormal"] }],
+  ["POST /api/products/[id]/mark-production-complete", { stage: "C3e-1", permissions: ["order.view", "product.view", "part.view", "production.view", "production.completeProduct"] }],
+  ["POST /api/kitting/[productId]", { stage: "C3e-1", permissions: ["order.view", "product.view", "part.view", "kitting.view", "kitting.execute"] }]
 ]);
 
 const pendingHandlers = new Map([
@@ -35,14 +40,9 @@ const pendingHandlers = new Map([
   ["POST /api/imports/excel/preview", "C3i"],
   ["POST /api/imports/excel/simple-confirm", "C3i"],
   ["POST /api/imports/excel/simple-preview", "C3i"],
-  ["POST /api/kitting/[productId]", "C3e"],
   ["POST /api/orders/[id]/import-products/confirm", "C3i"],
   ["POST /api/orders/[id]/import-products/preview", "C3i"],
   ["POST /api/outsourcing", "C3f"],
-  ["POST /api/parts/[id]/abnormal/resolve", "C3e"],
-  ["POST /api/parts/[id]/abnormal", "C3e"],
-  ["POST /api/parts/[id]/advance", "C3e"],
-  ["POST /api/products/[id]/mark-production-complete", "C3e"],
   ["POST /api/returns", "C3g"],
   ["POST /api/system/backup", "C3j"]
 ]);
@@ -138,8 +138,8 @@ test("只排除登录和登出两个认证写接口", () => {
   assert.deepEqual([...allHandlers.keys()].filter((endpoint) => excludedHandlers.has(endpoint)).sort(), [...excludedHandlers].sort());
 });
 
-test("C3d-1 已保护接口精确为十七个写 handler", () => {
-  assert.equal(protectedHandlers.size, 17);
+test("C3e-1 已保护接口精确为二十二个写 handler", () => {
+  assert.equal(protectedHandlers.size, 22);
   assert.deepEqual([...protectedHandlers.keys()].sort(), [
     "DELETE /api/customers/[id]",
     "DELETE /api/drawings/[id]",
@@ -150,9 +150,14 @@ test("C3d-1 已保护接口精确为十七个写 handler", () => {
     "PATCH /api/parts/[id]",
     "POST /api/customers",
     "POST /api/drawings/[id]/main",
+    "POST /api/kitting/[productId]",
     "POST /api/orders",
     "POST /api/orders/[id]/products",
+    "POST /api/parts/[id]/abnormal",
+    "POST /api/parts/[id]/abnormal/resolve",
+    "POST /api/parts/[id]/advance",
     "POST /api/parts/[id]/drawings",
+    "POST /api/products/[id]/mark-production-complete",
     "POST /api/products/[id]/parts",
     "POST /api/products/[id]/whole-part",
     "PUT /api/customers/[id]",
@@ -161,8 +166,8 @@ test("C3d-1 已保护接口精确为十七个写 handler", () => {
   ]);
 });
 
-test("待实施注册表精确为 15 个且均记录阶段", () => {
-  assert.equal(pendingHandlers.size, 15);
+test("待实施注册表精确为 10 个且均记录阶段", () => {
+  assert.equal(pendingHandlers.size, 10);
   for (const [endpoint, stage] of pendingHandlers) {
     assert.match(stage, /^C3[b-j]$/, `${endpoint} 缺少有效实施阶段`);
   }
@@ -177,7 +182,7 @@ test("每个业务写 handler 恰好属于已保护或待实施集合", () => {
   );
 });
 
-test("十七个已保护写 handler 使用精确的完整资源链权限组合", () => {
+test("二十二个已保护写 handler 使用精确的完整资源链权限组合", () => {
   for (const [endpoint, definition] of protectedHandlers) {
     const handler = businessHandlers.get(endpoint);
     assert.ok(handler, `缺少 ${endpoint}`);
@@ -187,14 +192,14 @@ test("十七个已保护写 handler 使用精确的完整资源链权限组合",
       new RegExp(
         `requireApiAllPermissions\\(\\[ ${definition.permissions
           .map((permission) => `"${permission.replace(".", "\\.")}"`)
-          .join(", ")} \\]\\)`
+          .join(", ")}(?:,)? \\]\\)`
       ),
       `${endpoint} 权限组合不正确`
     );
   }
 });
 
-test("十七个已保护写路由统一使用全权限助手且不回退 requireApiUser", () => {
+test("二十二个已保护写路由统一使用全权限助手且不回退 requireApiUser", () => {
   for (const endpoint of protectedHandlers.keys()) {
     const { source } = businessHandlers.get(endpoint);
     assert.match(source, /requireApiAllPermissions/);
@@ -202,7 +207,7 @@ test("十七个已保护写路由统一使用全权限助手且不回退 require
   }
 });
 
-test("十七个已保护写 handler 权限失败后立即返回", () => {
+test("二十二个已保护写 handler 权限失败后立即返回", () => {
   for (const [endpoint] of protectedHandlers) {
     const { source, method } = businessHandlers.get(endpoint);
     assert.match(functionBody(source, method), /if \(!authResult\.ok\) return authResult\.response/, endpoint);
@@ -399,9 +404,58 @@ test("部件 PATCH 与 DELETE 分别检查自身权限", () => {
   assert.doesNotMatch(deleteBody, /part\.update/);
 });
 
-test("其余十五个 pending 接口完整保留", () => {
-  assert.equal(pendingHandlers.size, 15);
+test("其余十个 pending 接口完整保留", () => {
+  assert.equal(pendingHandlers.size, 10);
   assert.equal([...pendingHandlers.keys()].some((endpoint) => endpoint.includes("/api/parts/[id]") && /^(PATCH|DELETE) /.test(endpoint)), false);
+});
+
+test("五个生产与齐套写接口已从 pending 移入 C3e-1 protected", () => {
+  for (const endpoint of [
+    "POST /api/parts/[id]/advance",
+    "POST /api/parts/[id]/abnormal",
+    "POST /api/parts/[id]/abnormal/resolve",
+    "POST /api/products/[id]/mark-production-complete",
+    "POST /api/kitting/[productId]"
+  ]) {
+    assert.equal(protectedHandlers.get(endpoint)?.stage, "C3e-1");
+    assert.equal(pendingHandlers.has(endpoint), false);
+  }
+});
+
+test("C3e-1 五个处理器鉴权均早于 params", () => {
+  for (const endpoint of [
+    "POST /api/parts/[id]/advance",
+    "POST /api/parts/[id]/abnormal",
+    "POST /api/parts/[id]/abnormal/resolve",
+    "POST /api/products/[id]/mark-production-complete",
+    "POST /api/kitting/[productId]"
+  ]) {
+    const handler = businessHandlers.get(endpoint);
+    assertBefore(functionBody(handler.source, handler.method), "requireApiAllPermissions", "context.params", endpoint);
+  }
+});
+
+test("C3e-1 JSON处理器鉴权早于请求体", () => {
+  for (const endpoint of [
+    "POST /api/parts/[id]/abnormal",
+    "POST /api/parts/[id]/abnormal/resolve"
+  ]) {
+    const handler = businessHandlers.get(endpoint);
+    assertBefore(functionBody(handler.source, handler.method), "requireApiAllPermissions", "request.json()", endpoint);
+  }
+});
+
+test("C3e-1 五个处理器鉴权早于事务", () => {
+  for (const endpoint of [
+    "POST /api/parts/[id]/advance",
+    "POST /api/parts/[id]/abnormal",
+    "POST /api/parts/[id]/abnormal/resolve",
+    "POST /api/products/[id]/mark-production-complete",
+    "POST /api/kitting/[productId]"
+  ]) {
+    const handler = businessHandlers.get(endpoint);
+    assertBefore(functionBody(handler.source, handler.method), "requireApiAllPermissions", "prisma.$transaction", endpoint);
+  }
 });
 
 test("四个图纸写接口均已从 pending 移入 C3d-1 protected", () => {

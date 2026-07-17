@@ -18,13 +18,18 @@ const restoreStatusOptions: { value: Exclude<ProductPartStatus, "ABNORMAL">; lab
 type AbnormalResolveActionsProps = {
   productPartId: string;
   fromStatus: ProductPartStatus;
+  canResolveProductionAbnormal: boolean;
 };
 
 function defaultRestoreStatus(status: ProductPartStatus): Exclude<ProductPartStatus, "ABNORMAL"> {
   return status === "ABNORMAL" ? "PENDING" : status;
 }
 
-export function AbnormalResolveActions({ productPartId, fromStatus }: AbnormalResolveActionsProps) {
+export function AbnormalResolveActions({
+  productPartId,
+  fromStatus,
+  canResolveProductionAbnormal
+}: AbnormalResolveActionsProps) {
   const router = useRouter();
   const [restoreStatus, setRestoreStatus] = useState<Exclude<ProductPartStatus, "ABNORMAL">>(defaultRestoreStatus(fromStatus));
   const [resolvedRemark, setResolvedRemark] = useState("");
@@ -32,6 +37,8 @@ export function AbnormalResolveActions({ productPartId, fromStatus }: AbnormalRe
   const [error, setError] = useState("");
 
   async function resolveAbnormal() {
+    if (!canResolveProductionAbnormal) return;
+
     setError("");
 
     if (resolvedRemark.trim().length > 500) {
@@ -61,6 +68,8 @@ export function AbnormalResolveActions({ productPartId, fromStatus }: AbnormalRe
 
     router.refresh();
   }
+
+  if (!canResolveProductionAbnormal) return null;
 
   return (
     <div className="min-w-56 space-y-2">

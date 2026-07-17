@@ -333,7 +333,8 @@ export function OrderDetailManager({
   canUpdateDrawing,
   canSetMainDrawing,
   canObsoleteDrawing,
-  canPrintOrder
+  canPrintOrder,
+  canCompleteProductionProduct
 }: {
   order: OrderDetail;
   customers: Customer[];
@@ -351,6 +352,7 @@ export function OrderDetailManager({
   canSetMainDrawing: boolean;
   canObsoleteDrawing: boolean;
   canPrintOrder: boolean;
+  canCompleteProductionProduct: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -829,6 +831,8 @@ export function OrderDetailManager({
   }
 
   async function markProductionComplete(product: Product) {
+    if (!canCompleteProductionProduct) return;
+
     if (!window.confirm("\u786e\u8ba4\u5c06\u8be5\u4ea7\u54c1\u6807\u8bb0\u4e3a\u751f\u4ea7\u5b8c\u6210\u5e76\u8fdb\u5165\u5f85\u9001\u8d27\u5417\uff1f")) {
       return;
     }
@@ -1413,9 +1417,11 @@ export function OrderDetailManager({
                             {wholePartProductId === product.id ? "处理中" : "设为整件产品"}
                           </button>
                         ) : null}
-                        <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-60" disabled={productionCompleteProductId === product.id} onClick={() => markProductionComplete(product)}>
-                          {productionCompleteProductId === product.id ? "\u5904\u7406\u4e2d" : "\u6807\u8bb0\u751f\u4ea7\u5b8c\u6210"}
-                        </button>
+                        {canCompleteProductionProduct ? (
+                          <button className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm disabled:opacity-60" disabled={productionCompleteProductId === product.id} onClick={() => markProductionComplete(product)}>
+                            {productionCompleteProductId === product.id ? "\u5904\u7406\u4e2d" : "\u6807\u8bb0\u751f\u4ea7\u5b8c\u6210"}
+                          </button>
+                        ) : null}
                         <Link className="rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm" href={`/kitting?productId=${product.id}`}>齐套检查</Link>
                         {canDeleteProduct ? <button className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700" onClick={() => deleteProduct(product)}>删除</button> : null}
                       </div>

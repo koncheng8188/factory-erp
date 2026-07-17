@@ -93,6 +93,18 @@ function quickWhere(quick: QuickFilter): Prisma.ProductWhereInput | null {
 export default async function ProductionPage({ searchParams }: ProductionPageProps) {
   const user = await requirePagePermission("production.view");
   const canPrintProduction = hasPermission(user.role, "production.print", []);
+  const canUpdateProductionProgress =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "production.view", []) &&
+    hasPermission(user.role, "production.updateProgress", []);
+  const canReportProductionAbnormal =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "production.view", []) &&
+    hasPermission(user.role, "production.reportAbnormal", []);
 
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
@@ -199,5 +211,13 @@ export default async function ProductionPage({ searchParams }: ProductionPagePro
     };
   });
 
-  return <ProductionManager products={productionProducts} filters={{ keyword, stage, quick }} canPrintProduction={canPrintProduction} />;
+  return (
+    <ProductionManager
+      products={productionProducts}
+      filters={{ keyword, stage, quick }}
+      canPrintProduction={canPrintProduction}
+      canUpdateProductionProgress={canUpdateProductionProgress}
+      canReportProductionAbnormal={canReportProductionAbnormal}
+    />
+  );
 }

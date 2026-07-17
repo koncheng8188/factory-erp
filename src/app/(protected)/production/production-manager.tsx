@@ -77,6 +77,8 @@ type ProductionProduct = {
 type ProductionManagerProps = {
   products: ProductionProduct[];
   canPrintProduction: boolean;
+  canUpdateProductionProgress: boolean;
+  canReportProductionAbnormal: boolean;
   filters: {
     keyword: string;
     stage: StageFilter;
@@ -273,7 +275,13 @@ function StatCard({ title, value }: { title: string; value: number }) {
   );
 }
 
-export function ProductionManager({ products, filters, canPrintProduction }: ProductionManagerProps) {
+export function ProductionManager({
+  products,
+  filters,
+  canPrintProduction,
+  canUpdateProductionProgress,
+  canReportProductionAbnormal
+}: ProductionManagerProps) {
   const router = useRouter();
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const floatingScrollRef = useRef<HTMLDivElement | null>(null);
@@ -305,6 +313,8 @@ export function ProductionManager({ products, filters, canPrintProduction }: Pro
   }
 
   async function advancePart(part: ProductionPart) {
+    if (!canUpdateProductionProgress) return;
+
     setMessage("");
     setError("");
     setUpdatingPartId(part.id);
@@ -324,6 +334,8 @@ export function ProductionManager({ products, filters, canPrintProduction }: Pro
   }
 
   function openAbnormalModal(product: ProductionProduct, part: ProductionPart) {
+    if (!canReportProductionAbnormal) return;
+
     setMessage("");
     setError("");
     setAbnormalReason("");
@@ -343,6 +355,7 @@ export function ProductionManager({ products, filters, canPrintProduction }: Pro
   }
 
   async function registerAbnormal() {
+    if (!canReportProductionAbnormal) return;
     if (!abnormalTarget) return;
 
     const reason = abnormalReason.trim();
@@ -383,6 +396,8 @@ export function ProductionManager({ products, filters, canPrintProduction }: Pro
   }
 
   function renderAbnormalButton(product: ProductionProduct, part: ProductionPart) {
+    if (!canReportProductionAbnormal) return null;
+
     return (
       <button
         className="inline-flex rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-100"
@@ -412,13 +427,15 @@ export function ProductionManager({ products, filters, canPrintProduction }: Pro
     if (advanceLabel) {
       return (
         <div className="flex flex-wrap gap-2">
-          <button
-            className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#344054] hover:text-white disabled:opacity-60"
-            disabled={updatingPartId === part.id}
-            onClick={() => advancePart(part)}
-          >
-            {updatingPartId === part.id ? "更新中" : advanceLabel}
-          </button>
+          {canUpdateProductionProgress ? (
+            <button
+              className="rounded-md bg-[#172033] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#344054] hover:text-white disabled:opacity-60"
+              disabled={updatingPartId === part.id}
+              onClick={() => advancePart(part)}
+            >
+              {updatingPartId === part.id ? "更新中" : advanceLabel}
+            </button>
+          ) : null}
           {renderAbnormalButton(product, part)}
         </div>
       );

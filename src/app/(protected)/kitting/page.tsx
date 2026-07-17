@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requirePagePermission } from "@/lib/auth/authorization";
 import { calculateKittingResult } from "@/lib/kitting";
+import { hasPermission } from "@/lib/permissions";
 import { KittingManager } from "./kitting-manager";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,13 @@ type KittingPageProps = {
 };
 
 export default async function KittingPage({ searchParams }: KittingPageProps) {
-  await requirePagePermission("kitting.view");
+  const user = await requirePagePermission("kitting.view");
+  const canExecuteKitting =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "kitting.view", []) &&
+    hasPermission(user.role, "kitting.execute", []);
 
   const { productId } = await searchParams;
   const products = await prisma.product.findMany({
@@ -59,5 +66,11 @@ export default async function KittingPage({ searchParams }: KittingPageProps) {
     };
   });
 
-  return <KittingManager products={kittingProducts} selectedProductId={productId ?? null} />;
+  return (
+    <KittingManager
+      products={kittingProducts}
+      selectedProductId={productId ?? null}
+      canExecuteKitting={canExecuteKitting}
+    />
+  );
 }
