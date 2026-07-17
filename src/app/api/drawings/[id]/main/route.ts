@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
+import { DrawingMainError, setMainDrawing } from "@/lib/drawing-main-integrity";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
-
-function isPrismaNotFound(error: unknown) {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
-}
 
 export async function POST(_request: NextRequest, context: RouteContext) {
   const authResult = await requireApiAllPermissions([
@@ -19,35 +15,13 @@ export async function POST(_request: NextRequest, context: RouteContext) {
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;
-    const drawing = await prisma.partDrawing.findUnique({
-      where: { id },
-      select: { id: true, partId: true, status: true }
-    });
-
-    if (!drawing) {
-      return NextResponse.json({ error: "图纸不存在。" }, { status: 404 });
-    }
-
-    if (drawing.status === "OBSOLETE") {
-      return NextResponse.json({ error: "已作废图纸不能设为主图。" }, { status: 400 });
-    }
-
-    const [, mainDrawing] = await prisma.$transaction([
-      prisma.partDrawing.updateMany({
-        where: { partId: drawing.partId },
-        data: { isMain: false }
-      }),
-      prisma.partDrawing.update({
-        where: { id: drawing.id },
-        data: { isMain: true }
-      })
-    ]);
-
-    return NextResponse.json({ drawing: mainDrawing });
+    // setMainDrawing 使用注入客户端的 prisma.$transaction 执行完整事务。
+    const drawing = await setMainDrawing({ drawingId: id, client: prisma });
+    return NextResponse.json({ drawing });
   } catch (error) {
     console.error("设置主图失败", error);
-    if (isPrismaNotFound(error)) {
-      return NextResponse.json({ error: "图纸不存在。" }, { status: 404 });
+    if (error instanceof DrawingMainError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json({ error: "设置主图失败。" }, { status: 500 });
   }

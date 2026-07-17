@@ -52,7 +52,7 @@ type DrawingPart = { id: string; orderId: string; productId: string };
 type DrawingClient = {
   partDrawing: {
     count(args: unknown): Promise<number>;
-    findFirst(args: unknown): Promise<{ version: number } | null>;
+    findFirst(args: unknown): Promise<{ id?: string; version?: number } | null>;
     create(args: unknown): unknown;
   };
   $transaction(args: readonly unknown[]): Promise<any[]>;
@@ -213,7 +213,12 @@ export async function uploadDrawingBatch({
         throw new DrawingUploadError(500, "保存图纸文件失败。", error);
       }
     }
-    for (let attempt = 1; attempt <= MAX_VERSION_CREATE_ATTEMPTS; attempt += 1) {
+    let versionConflictAttempts = 0;
+    let databaseAttempt = 0;
+    let plansMainDrawing = existingCount === 0;
+    let mainDrawingDowngraded = false;
+    while (versionConflictAttempts < MAX_VERSION_CREATE_ATTEMPTS) {
+      databaseAttempt += 1;
       const latestDrawing = await client.partDrawing.findFirst({
         where: { partId: part.id },
         orderBy: { version: "desc" },
@@ -221,7 +226,7 @@ export async function uploadDrawingBatch({
       });
       const startVersion = (latestDrawing?.version ?? 0) + 1;
       const versions = savedFiles.map((_savedFile, index) => startVersion + index);
-      await dependencies?.beforeVersionCreateAttempt?.({ attempt, versions });
+      await dependencies?.beforeVersionCreateAttempt?.({ attempt: databaseAttempt, versions });
       try {
         const drawings = await client.$transaction(savedFiles.map((savedFile, index) =>
           client.partDrawing.create({ data: {
@@ -229,14 +234,26 @@ export async function uploadDrawingBatch({
             fileName: savedFile.fileName, fileType: savedFile.fileType,
             originalUrl: savedFile.originalUrl, thumbnailUrl: savedFile.thumbnailUrl,
             printThumbnailUrl: savedFile.printThumbnailUrl, version: versions[index],
-            isMain: existingCount === 0 && index === 0, status: "PENDING",
+            isMain: plansMainDrawing && index === 0, status: "PENDING",
             uploadStatus: savedFile.uploadStatus, errorMessage: savedFile.errorMessage, remark
           } })
         ));
         return { drawings, savedFiles };
       } catch (error) {
         if (isPrismaUniqueConstraintError(error)) {
-          if (attempt < MAX_VERSION_CREATE_ATTEMPTS) continue;
+          if (plansMainDrawing && !mainDrawingDowngraded) {
+            const existingMainDrawing = await client.partDrawing.findFirst({
+              where: { partId: part.id, isMain: true },
+              select: { id: true }
+            });
+            if (existingMainDrawing) {
+              plansMainDrawing = false;
+              mainDrawingDowngraded = true;
+              continue;
+            }
+          }
+          versionConflictAttempts += 1;
+          if (versionConflictAttempts < MAX_VERSION_CREATE_ATTEMPTS) continue;
           throw new DrawingUploadError(409, "图纸版本冲突，请重新上传。", error);
         }
         if (isPrismaForeignKeyError(error)) throw new DrawingUploadError(404, "部件不存在。", error);
