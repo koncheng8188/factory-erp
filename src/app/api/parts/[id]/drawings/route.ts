@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { allowedDrawingFileMessage, deleteSavedDrawingFiles, isAllowedDrawingFile, saveDrawingFile } from "@/lib/drawing-files";
 import { requireApiAllPermissions, requireApiPermission } from "@/lib/auth/authorization";
 import { withProtectedDrawingUrls } from "@/lib/drawing-file-url";
+import { DrawingUploadError, uploadDrawingBatch } from "@/lib/drawing-upload-integrity";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -39,7 +39,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
     "drawing.upload"
   ]);
   if (!authResult.ok) return authResult.response;
-  const savedFiles: Awaited<ReturnType<typeof saveDrawingFile>>[] = [];
   try {
     const { id } = await context.params;
     const part = await prisma.productPart.findUnique({
@@ -51,62 +50,34 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "部件不存在。" }, { status: 404 });
     }
 
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch (error) {
+      console.error("解析图纸上传请求失败", error);
+      return NextResponse.json({ error: "上传请求格式无效。" }, { status: 400 });
+    }
     const entries = formData.getAll("files");
-    const files = entries.filter((entry): entry is File => entry instanceof File && entry.size > 0);
+    const files = entries.filter((entry): entry is File => entry instanceof File);
 
     if (files.length === 0) {
       const singleFile = formData.get("file");
-      if (singleFile instanceof File && singleFile.size > 0) {
+      if (singleFile instanceof File) {
         files.push(singleFile);
       }
     }
-
-    if (files.length === 0) {
-      return NextResponse.json({ error: "请先选择要上传的图纸文件。" }, { status: 400 });
-    }
-
-    const invalidFile = files.find((file) => !isAllowedDrawingFile(file));
-    if (invalidFile) {
-      return NextResponse.json({ error: allowedDrawingFileMessage() }, { status: 400 });
-    }
-
-    const existingCount = await prisma.partDrawing.count({ where: { partId: part.id } });
-    const latestDrawing = await prisma.partDrawing.findFirst({
-      where: { partId: part.id },
-      orderBy: { version: "desc" },
-      select: { version: true }
-    });
-    const startVersion = latestDrawing ? latestDrawing.version + 1 : 1;
     const remark = normalizeOptional(formData.get("remark"));
 
-    for (const file of files) savedFiles.push(await saveDrawingFile(part.id, file));
-    const drawings = await prisma.$transaction(
-      savedFiles.map((savedFile, index) =>
-        prisma.partDrawing.create({
-          data: {
-            orderId: part.orderId,
-            productId: part.productId,
-            partId: part.id,
-            fileName: savedFile.fileName,
-            fileType: savedFile.fileType,
-            originalUrl: savedFile.originalUrl,
-            thumbnailUrl: savedFile.thumbnailUrl,
-            printThumbnailUrl: savedFile.printThumbnailUrl,
-            version: startVersion + index,
-            isMain: existingCount === 0 && index === 0,
-            status: "PENDING",
-            uploadStatus: savedFile.uploadStatus,
-            errorMessage: savedFile.errorMessage,
-            remark
-          }
-        })
-      )
-    );
+    // saveDrawingFile 的单文件职责已由整批预验证后的 uploadDrawingBatch 取代。
+    const { drawings } = await uploadDrawingBatch({ files, part, client: prisma, remark });
 
     return NextResponse.json({ drawings: drawings.map(withProtectedDrawingUrls) });
   } catch (error) {
-    await deleteSavedDrawingFiles(savedFiles);
-    return NextResponse.json({ error: errorMessage(error, "上传图纸失败。") }, { status: 500 });
+    if (error instanceof DrawingUploadError) {
+      console.error("图纸上传失败", error.cause ?? error);
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error("图纸上传未知错误", error);
+    return NextResponse.json({ error: "上传图纸失败。" }, { status: 500 });
   }
 }

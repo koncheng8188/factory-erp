@@ -1,16 +1,20 @@
-import { mkdir, rm, stat, writeFile } from "fs/promises";
+import { mkdir, rm, writeFile } from "fs/promises";
 import path from "path";
 import sharp from "sharp";
 
-const allowedTypes = new Map([
-  ["image/jpeg", "jpg"],
-  ["image/png", "png"],
-  ["image/webp", "webp"],
-  ["application/pdf", "pdf"]
-]);
+export const productionDrawingStorageRoot = path.join(process.cwd(), "storage", "uploads", "drawings");
 
-const originalsDir = path.join(process.cwd(), "storage", "uploads", "drawings", "originals");
-const thumbnailsDir = path.join(process.cwd(), "storage", "uploads", "drawings", "thumbnails");
+export type DrawingStorage = {
+  root: string;
+  originalsDir: string;
+  thumbnailsDir: string;
+};
+
+export type PreparedDrawingFile = {
+  fileName: string;
+  fileType: "jpg" | "png" | "webp" | "pdf";
+  buffer: Buffer;
+};
 
 export type SavedDrawingFile = {
   fileName: string;
@@ -23,59 +27,67 @@ export type SavedDrawingFile = {
   createdPaths: string[];
 };
 
-export function isAllowedDrawingFile(file: File) {
-  return allowedTypes.has(file.type);
+export type DrawingFileDependencies = {
+  createThumbnail?: (buffer: Buffer, targetPath: string) => Promise<void>;
+};
+
+function storageFor(root = productionDrawingStorageRoot): DrawingStorage {
+  const resolvedRoot = path.resolve(root);
+  return {
+    root: resolvedRoot,
+    originalsDir: path.join(resolvedRoot, "originals"),
+    thumbnailsDir: path.join(resolvedRoot, "thumbnails")
+  };
 }
 
-export function allowedDrawingFileMessage() {
-  return "仅支持 JPG、JPEG、PNG、WEBP、PDF 图纸文件。DWG/DXF 请先导出为 PDF 或图片后上传。";
+function isWithinRoot(root: string, target: string) {
+  const relative = path.relative(path.resolve(root), path.resolve(target));
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
-function safeBaseName(fileName: string) {
-  const extension = path.extname(fileName);
-  const baseName = path.basename(fileName, extension);
-  const normalized = baseName
-    .normalize("NFKD")
-    .replace(/[^\w.-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "")
-    .toLowerCase();
-
-  return normalized || "drawing";
-}
-
-function extensionFor(file: File) {
-  return allowedTypes.get(file.type) ?? "bin";
-}
-
-async function ensureUploadDirs() {
+async function ensureUploadDirs(storage: DrawingStorage) {
   await Promise.all([
-    mkdir(originalsDir, { recursive: true }),
-    mkdir(thumbnailsDir, { recursive: true })
+    mkdir(storage.originalsDir, { recursive: true }),
+    mkdir(storage.thumbnailsDir, { recursive: true })
   ]);
 }
 
-export async function saveDrawingFile(partId: string, file: File): Promise<SavedDrawingFile> {
-  if (!isAllowedDrawingFile(file)) {
-    throw new Error(allowedDrawingFileMessage());
+async function createDefaultThumbnail(buffer: Buffer, targetPath: string) {
+  await sharp(buffer)
+    .rotate()
+    .resize({ width: 300, height: 300, fit: "inside", withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toFile(targetPath);
+}
+
+function safePartIdentifier(partId: string) {
+  return partId.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "part";
+}
+
+export async function savePreparedDrawingFile(
+  partId: string,
+  file: PreparedDrawingFile,
+  options: { storageRoot?: string; randomId: () => string; now?: () => number; dependencies?: DrawingFileDependencies } = { randomId: () => crypto.randomUUID() }
+): Promise<SavedDrawingFile> {
+  const storage = storageFor(options.storageRoot);
+  const now = options.now ?? Date.now;
+  const randomId = options.randomId();
+  const safeName = `${safePartIdentifier(partId)}_${now()}_${randomId}`;
+  const originalFileName = `${safeName}.${file.fileType}`;
+  const originalPath = path.join(storage.originalsDir, originalFileName);
+  const originalUrl = `/uploads/drawings/originals/${originalFileName}`;
+
+  await ensureUploadDirs(storage);
+  try {
+    await writeFile(originalPath, file.buffer, { flag: "wx" });
+  } catch (error) {
+    throw error;
   }
 
-  await ensureUploadDirs();
-
-  const extension = extensionFor(file);
-  const timestamp = Date.now();
-  const safeName = `${partId}_${timestamp}_${safeBaseName(file.name)}`;
-  const originalFileName = `${safeName}.${extension}`;
-  const originalPath = path.join(originalsDir, originalFileName);
-  const originalUrl = `/uploads/drawings/originals/${originalFileName}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-
-  await writeFile(originalPath, buffer, { flag: "wx" });
-
-  if (file.type === "application/pdf") {
+  if (file.fileType === "pdf") {
     return {
-      fileName: file.name,
-      fileType: extension,
+      fileName: file.fileName,
+      fileType: file.fileType,
       originalUrl,
       thumbnailUrl: null,
       printThumbnailUrl: null,
@@ -86,23 +98,13 @@ export async function saveDrawingFile(partId: string, file: File): Promise<Saved
   }
 
   const thumbnailFileName = `${safeName}.webp`;
-  const thumbnailPath = path.join(thumbnailsDir, thumbnailFileName);
+  const thumbnailPath = path.join(storage.thumbnailsDir, thumbnailFileName);
   const thumbnailUrl = `/uploads/drawings/thumbnails/${thumbnailFileName}`;
-
   try {
-    await stat(thumbnailPath).then(() => { throw new Error("图纸文件名重复，请重新上传。") }).catch((error) => {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-      throw error;
-    });
-    await sharp(buffer)
-      .rotate()
-      .resize({ width: 300, height: 300, fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 82 })
-      .toFile(thumbnailPath);
-
+    await (options.dependencies?.createThumbnail ?? createDefaultThumbnail)(file.buffer, thumbnailPath);
     return {
-      fileName: file.name,
-      fileType: extension,
+      fileName: file.fileName,
+      fileType: file.fileType,
       originalUrl,
       thumbnailUrl,
       printThumbnailUrl: thumbnailUrl,
@@ -111,12 +113,32 @@ export async function saveDrawingFile(partId: string, file: File): Promise<Saved
       createdPaths: [originalPath, thumbnailPath]
     };
   } catch (error) {
-    await rm(originalPath, { force: true }).catch(() => undefined);
-    await rm(thumbnailPath, { force: true }).catch(() => undefined);
-    throw new Error(error instanceof Error ? error.message : "缩略图生成失败。");
+    await rm(thumbnailPath, { force: true }).catch((cleanupError) => console.error("清理失败缩略图失败", cleanupError));
+    return {
+      fileName: file.fileName,
+      fileType: file.fileType,
+      originalUrl,
+      thumbnailUrl: null,
+      printThumbnailUrl: null,
+      uploadStatus: "THUMBNAIL_FAILED",
+      errorMessage: "缩略图生成失败。",
+      createdPaths: [originalPath]
+    };
   }
 }
 
-export async function deleteSavedDrawingFiles(files: SavedDrawingFile[]) {
-  await Promise.all(files.flatMap((file) => file.createdPaths).map((filePath) => rm(filePath, { force: true }).catch(() => undefined)));
+export async function deleteSavedDrawingFiles(files: readonly SavedDrawingFile[], storageRoot = productionDrawingStorageRoot) {
+  const storage = storageFor(storageRoot);
+  const paths = files.flatMap((file) => file.createdPaths).filter((filePath) => isWithinRoot(storage.root, filePath));
+  await Promise.all(paths.map(async (filePath) => {
+    try {
+      await rm(filePath, { force: true });
+    } catch (error) {
+      console.error("清理上传图纸文件失败", error);
+    }
+  }));
+}
+
+export function drawingStoragePaths(storageRoot = productionDrawingStorageRoot) {
+  return storageFor(storageRoot);
 }
