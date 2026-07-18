@@ -4,16 +4,17 @@ import type { ProductPartStatus } from "@prisma/client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-const restoreStatusOptions: { value: Exclude<ProductPartStatus, "ABNORMAL">; label: string }[] = [
-  { value: "PENDING", label: "待生产" },
-  { value: "CUTTING", label: "下料中" },
-  { value: "WELDING", label: "焊接中" },
-  { value: "POLISHING", label: "抛光中" },
-  { value: "WAIT_OUTSOURCE", label: "待外发" },
-  { value: "OUTSOURCING", label: "外发中" },
-  { value: "PARTIAL_RETURN", label: "部分回厂" },
-  { value: "RETURNED", label: "已回厂" }
-];
+const partStatusLabels: Record<ProductPartStatus, string> = {
+  PENDING: "待生产",
+  CUTTING: "下料中",
+  WELDING: "焊接中",
+  POLISHING: "抛光中",
+  WAIT_OUTSOURCE: "待外发",
+  OUTSOURCING: "外发中",
+  PARTIAL_RETURN: "部分回厂",
+  RETURNED: "已回厂",
+  ABNORMAL: "异常"
+};
 
 type AbnormalResolveActionsProps = {
   productPartId: string;
@@ -21,17 +22,12 @@ type AbnormalResolveActionsProps = {
   canResolveProductionAbnormal: boolean;
 };
 
-function defaultRestoreStatus(status: ProductPartStatus): Exclude<ProductPartStatus, "ABNORMAL"> {
-  return status === "ABNORMAL" ? "PENDING" : status;
-}
-
 export function AbnormalResolveActions({
   productPartId,
   fromStatus,
   canResolveProductionAbnormal
 }: AbnormalResolveActionsProps) {
   const router = useRouter();
-  const [restoreStatus, setRestoreStatus] = useState<Exclude<ProductPartStatus, "ABNORMAL">>(defaultRestoreStatus(fromStatus));
   const [resolvedRemark, setResolvedRemark] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -53,7 +49,6 @@ export function AbnormalResolveActions({
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        restoreStatus,
         resolvedRemark
       })
     });
@@ -73,17 +68,9 @@ export function AbnormalResolveActions({
 
   return (
     <div className="min-w-56 space-y-2">
-      <select
-        className="w-full rounded-md border border-[#cfd6e1] px-2 py-1.5 text-sm"
-        value={restoreStatus}
-        onChange={(event) => setRestoreStatus(event.target.value as Exclude<ProductPartStatus, "ABNORMAL">)}
-      >
-        {restoreStatusOptions.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      <div className="rounded-md border border-[#d8dde6] bg-[#f6f7f9] px-3 py-2 text-sm text-[#344054]">
+        恢复到：{partStatusLabels[fromStatus]}
+      </div>
       <textarea
         className="min-h-16 w-full rounded-md border border-[#cfd6e1] px-2 py-1.5 text-sm"
         maxLength={500}

@@ -1,9 +1,12 @@
-import type { Prisma, ProductPartStatus, ProductStatus } from "@prisma/client";
+import type { OrderStatus, Prisma, ProductPartStatus, ProductStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 type ProductProgressTx = Prisma.TransactionClient | typeof prisma;
 
 const deliveryControlledStatuses = new Set<ProductStatus>(["PARTIAL_DELIVERED", "COMPLETED"]);
+const deliveryControlledOrderStatuses = new Set<OrderStatus>(["PARTIAL_DELIVERED", "COMPLETED"]);
+const deliveryReadyProductStatuses = new Set<ProductStatus>(["WAIT_DELIVERY", "PARTIAL_DELIVERED", "COMPLETED"]);
+const outsourcingProductStatuses = new Set<ProductStatus>(["WAIT_OUTSOURCE", "OUTSOURCING", "PARTIAL_RETURN", "RETURNED"]);
 
 export function getNextPartStatus(status: ProductPartStatus): ProductPartStatus | null {
   if (status === "PENDING" || status === "CUTTING") return "WELDING";
@@ -23,6 +26,26 @@ export function calculateProductStatusFromParts(parts: Array<{ status: ProductPa
   if (parts.some((part) => part.status === "PARTIAL_RETURN")) return "PARTIAL_RETURN";
   if (parts.every((part) => part.status === "RETURNED")) return "WAIT_DELIVERY";
   return "PENDING";
+}
+
+export function calculateProtectedProductStatus(
+  currentStatus: ProductStatus,
+  parts: Array<{ status: ProductPartStatus }>
+): ProductStatus {
+  return deliveryControlledStatuses.has(currentStatus) ? currentStatus : calculateProductStatusFromParts(parts);
+}
+
+export function calculateOrderStatusFromProducts(
+  currentStatus: OrderStatus,
+  products: Array<{ status: ProductStatus }>
+): OrderStatus {
+  if (deliveryControlledOrderStatuses.has(currentStatus)) return currentStatus;
+  if (products.length === 0) return "PENDING";
+  if (products.every((product) => deliveryReadyProductStatuses.has(product.status))) return "WAIT_DELIVERY";
+  if (products.some((product) => product.status === "ABNORMAL")) return "ABNORMAL";
+  if (products.some((product) => outsourcingProductStatuses.has(product.status))) return "OUTSOURCING";
+  if (products.every((product) => product.status === "PENDING")) return "PENDING";
+  return "PRODUCING";
 }
 
 export async function syncProductStatusFromParts(txOrProductId: ProductProgressTx | string, productId?: string) {
@@ -50,11 +73,7 @@ export async function syncProductStatusFromParts(txOrProductId: ProductProgressT
     return null;
   }
 
-  if (deliveryControlledStatuses.has(product.status)) {
-    return product;
-  }
-
-  const status = calculateProductStatusFromParts(product.parts);
+  const status = calculateProtectedProductStatus(product.status, product.parts);
   if (product.status === status) {
     return product;
   }

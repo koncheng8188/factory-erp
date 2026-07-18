@@ -1,31 +1,31 @@
-import { NextResponse } from "next/server";
-import { getNextPartStatus, syncProductStatusFromParts } from "@/lib/product-progress";
-import { prisma } from "@/lib/prisma";
 import type { ProductPartStatus } from "@prisma/client";
+import { NextResponse } from "next/server";
 import { requireApiAllPermissions } from "@/lib/auth/authorization";
+import { isProductPartStatus } from "@/lib/product-part-status";
+import { prisma } from "@/lib/prisma";
+import {
+  advancePartProduction,
+  ProductionKittingError
+} from "@/lib/production-kitting-integrity";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+type AdvanceRequestBody = {
+  expectedStatus?: unknown;
+};
+
+function stableErrorResponse(error: unknown) {
+  if (error instanceof ProductionKittingError) {
+    if (error.status >= 500) console.error("推进部件状态失败。", error.cause ?? error);
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  console.error("推进部件状态失败。", error);
+  return NextResponse.json({ error: "操作失败，请稍后重试。" }, { status: 500 });
 }
 
-function getAdvanceActionName(fromStatus: ProductPartStatus, toStatus: ProductPartStatus) {
-  if ((fromStatus === "PENDING" || fromStatus === "CUTTING") && toStatus === "WELDING") {
-    return "完成下料，进入焊接";
-  }
-  if (fromStatus === "WELDING" && toStatus === "POLISHING") {
-    return "完成焊接，进入抛光";
-  }
-  if (fromStatus === "POLISHING" && toStatus === "WAIT_OUTSOURCE") {
-    return "完成抛光，进入待外发";
-  }
-  return null;
-}
-
-export async function POST(_request: Request, context: RouteContext) {
+export async function POST(request: Request, context: RouteContext) {
   const authResult = await requireApiAllPermissions([
     "order.view",
     "product.view",
@@ -34,82 +34,22 @@ export async function POST(_request: Request, context: RouteContext) {
     "production.updateProgress",
   ]);
   if (!authResult.ok) return authResult.response;
+  // 事务由完整性服务内部通过 prisma.$transaction 执行。
   try {
     const { id } = await context.params;
+    const body = await request.json().catch(() => null) as AdvanceRequestBody | null;
+    const expectedStatusValue = typeof body?.expectedStatus === "string" ? body.expectedStatus.trim() : "";
+    if (!isProductPartStatus(expectedStatusValue)) {
+      return NextResponse.json({ error: "请求格式无效。" }, { status: 400 });
+    }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const part = await tx.productPart.findUnique({
-        where: { id },
-        select: {
-          id: true,
-          orderId: true,
-          productId: true,
-          status: true,
-          order: {
-            select: {
-              status: true
-            }
-          }
-        }
-      });
-
-      if (!part) {
-        throw new Error("部件不存在。");
-      }
-
-      const nextStatus = getNextPartStatus(part.status);
-      if (!nextStatus) {
-        throw new Error("当前部件状态不允许在生产进度页继续推进。");
-      }
-
-      const actionName = getAdvanceActionName(part.status, nextStatus);
-      if (!actionName) {
-        throw new Error("当前部件状态推进不支持记录生产日报。");
-      }
-
-      const updatedPart = await tx.productPart.update({
-        where: { id: part.id },
-        data: { status: nextStatus },
-        select: {
-          id: true,
-          productId: true,
-          status: true
-        }
-      });
-      const progressLog = await tx.productPartProgressLog.create({
-        data: {
-          productPartId: part.id,
-          productId: part.productId,
-          orderId: part.orderId,
-          fromStatus: part.status,
-          toStatus: nextStatus,
-          actionName
-        },
-        select: {
-          id: true,
-          occurredAt: true,
-          actionName: true
-        }
-      });
-      const product = await syncProductStatusFromParts(tx, part.productId);
-      const shouldMarkOrderProducing = part.order.status === "PENDING";
-
-      if (shouldMarkOrderProducing) {
-        await tx.order.update({
-          where: { id: part.orderId },
-          data: { status: "PRODUCING" }
-        });
-      }
-
-      return {
-        part: updatedPart,
-        progressLog,
-        product
-      };
+    const result = await advancePartProduction({
+      client: prisma,
+      partId: id,
+      expectedStatus: expectedStatusValue as ProductPartStatus
     });
-
     return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "推进部件状态失败。") }, { status: 400 });
+    return stableErrorResponse(error);
   }
 }

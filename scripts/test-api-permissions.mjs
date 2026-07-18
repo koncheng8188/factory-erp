@@ -114,6 +114,9 @@ const source = {
   productPartIntegrity: await readSource("src", "lib", "product-part-integrity.ts"),
   drawingUploadIntegrity: await readSource("src", "lib", "drawing-upload-integrity.ts"),
   drawingMainIntegrity: await readSource("src", "lib", "drawing-main-integrity.ts"),
+  productionKittingIntegrity: await readSource("src", "lib", "production-kitting-integrity.ts"),
+  productProgress: await readSource("src", "lib", "product-progress.ts"),
+  kittingLib: await readSource("src", "lib", "kitting.ts"),
   drawingFiles: await readSource("src", "lib", "drawing-files.ts"),
   schema: await readSource("prisma", "schema.prisma"),
   drawingVersionMigration: await readSource("prisma", "migrations", "20260717131524_add_part_drawing_version_unique", "migration.sql"),
@@ -628,101 +631,100 @@ test("齐套 POST 接入精确完整资源链和执行权限", () => {
   assertAllPermissions(kittingPost, ["order.view", "product.view", "part.view", "kitting.view", "kitting.execute"]);
   assert.doesNotMatch(kittingPost, /requireApiUser/);
 });
-test("齐套 POST 保留事务与刷新逻辑", () => {
-  assert.match(kittingPost, /prisma\.\$transaction/);
-  assert.match(kittingPost, /refreshProductKittingStatus/);
+test("齐套 POST 将事务委托给完整性服务", () => {
+  assert.match(kittingPost, /refreshKittingState\(\{/);
+  assert.match(kittingPost, /client: prisma/);
+  assert.doesNotMatch(kittingPost, /await prisma\.\$transaction|prisma\.\$transaction\(/);
 });
-test("齐套 POST 鉴权早于 params 和事务", () => {
+test("齐套 POST 鉴权早于 params 和完整性服务", () => {
   assertBefore(kittingPost, "requireApiAllPermissions", "context.params");
-  assertBefore(kittingPost, "requireApiAllPermissions", "prisma.$transaction");
+  assertBefore(kittingPost, "requireApiAllPermissions", "refreshKittingState");
 });
 test("齐套 POST 保持成功分支和错误语义", () => {
   for (const marker of ["该产品未维护部件，不能齐套。", "missingParts", "数量已齐，但存在异常记录，请处理后再送货。", "齐套检查完成，产品已进入待送货。"]) {
     assert.match(kittingPost, new RegExp(escapeRegExp(marker)));
   }
-  assert.match(kittingPost, /errorMessage\(error, "执行齐套检查失败。"\)[\s\S]*?status: 500/);
+  assert.match(kittingPost, /ProductionKittingError/);
+  assert.match(kittingPost, /操作失败，请稍后重试。[\s\S]*?status: 500/);
 });
-test("齐套 POST 未提前实施自动回退或并发重试", () => {
-  assert.doesNotMatch(kittingPost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|retry/i);
+test("齐套 POST 不在 Route 内实现自动回退或并发重试", () => {
+  assert.doesNotMatch(kittingPost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|updateMany/i);
 });
 
 test("推进部件精确要求五项生产权限", () => {
   assertAllPermissions(partAdvancePost, ["order.view", "product.view", "part.view", "production.view", "production.updateProgress"]);
 });
-test("推进部件鉴权早于 params 和事务", () => {
+test("推进部件鉴权早于 params、JSON 和完整性服务", () => {
   assertBefore(partAdvancePost, "requireApiAllPermissions", "context.params");
-  assertBefore(partAdvancePost, "requireApiAllPermissions", "prisma.$transaction");
+  assertBefore(partAdvancePost, "requireApiAllPermissions", "request.json()");
+  assertBefore(partAdvancePost, "requireApiAllPermissions", "advancePartProduction");
 });
-test("推进部件保持状态、日志、产品和订单联动", () => {
-  for (const marker of ["getNextPartStatus", "tx.productPart.update", "tx.productPartProgressLog.create", "syncProductStatusFromParts", 'data: { status: "PRODUCING" }']) {
-    assert.match(partAdvancePost, new RegExp(escapeRegExp(marker)));
-  }
+test("推进部件要求 expectedStatus 且不接收目标状态", () => {
+  assert.match(partAdvancePost, /expectedStatusValue/);
+  assert.match(partAdvancePost, /isProductPartStatus\(expectedStatusValue\)/);
+  assert.match(partAdvancePost, /expectedStatus: expectedStatusValue/);
+  assert.doesNotMatch(partAdvancePost, /nextStatus|targetStatus|toStatus/);
   assert.doesNotMatch(partAdvancePost, /returnedQuantity|missingQuantity|outsourcedQuantity/);
 });
-test("推进部件保持原错误语义且无并发加固", () => {
-  assert.match(partAdvancePost, /errorMessage\(error, "推进部件状态失败。"\)[\s\S]*?status: 400/);
-  assert.doesNotMatch(partAdvancePost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|updateMany/i);
+test("推进部件使用稳定错误且 Route 不实现事务", () => {
+  assert.match(partAdvancePost, /stableErrorResponse\(error\)/);
+  assert.doesNotMatch(partAdvancePost, /errorMessage|await prisma\.\$transaction|prisma\.\$transaction\(|updateMany/);
 });
 
 test("登记异常精确要求五项生产权限", () => {
   assertAllPermissions(partAbnormalPost, ["order.view", "product.view", "part.view", "production.view", "production.reportAbnormal"]);
 });
-test("登记异常鉴权早于 params、JSON 和事务", () => {
-  for (const marker of ["context.params", "request.json()", "prisma.$transaction"]) {
+test("登记异常鉴权早于 params、JSON 和完整性服务", () => {
+  for (const marker of ["context.params", "request.json()", "reportPartAbnormal"]) {
     assertBefore(partAbnormalPost, "requireApiAllPermissions", marker);
   }
 });
-test("登记异常保持 OPEN 查询、创建和状态同步", () => {
-  for (const marker of ['status: "OPEN"', "tx.productPartAbnormal.create", 'data: { status: "ABNORMAL" }', "syncProductStatusFromParts"]) {
-    assert.match(partAbnormalPost, new RegExp(escapeRegExp(marker)));
-  }
+test("登记异常 Route 只验证原因并调用完整性服务", () => {
+  assert.match(partAbnormalPost, /reportPartAbnormal\(\{/);
+  assert.match(partAbnormalPost, /partId: id/);
+  assert.match(partAbnormalPost, /\breason\b/);
+  assert.doesNotMatch(partAbnormalPost, /productPartAbnormal\.(?:find|create)|productPart\.update/);
 });
-test("登记异常保持原错误和并发现状", () => {
-  assert.match(partAbnormalPost, /message === "部件不存在。" \? 404 : 400/);
-  assert.doesNotMatch(partAbnormalPost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|updateMany/i);
+test("登记异常使用稳定错误且不回显任意 error.message", () => {
+  assert.match(partAbnormalPost, /stableErrorResponse\(error\)/);
+  assert.doesNotMatch(partAbnormalPost, /errorMessage|error instanceof Error \? error\.message/);
 });
 
 test("处理异常精确要求五项生产权限", () => {
   assertAllPermissions(partAbnormalResolvePost, ["order.view", "product.view", "part.view", "production.abnormal.view", "production.resolveAbnormal"]);
 });
-test("处理异常鉴权早于 params、JSON 和事务", () => {
-  for (const marker of ["context.params", "request.json()", "prisma.$transaction"]) {
+test("处理异常鉴权早于 params、JSON 和完整性服务", () => {
+  for (const marker of ["context.params", "request.json()", "resolvePartAbnormal"]) {
     assertBefore(partAbnormalResolvePost, "requireApiAllPermissions", marker);
   }
 });
-test("处理异常保持任意非 ABNORMAL 恢复规则和原更新", () => {
-  assert.match(partAbnormalResolvePost, /!isProductPartStatus\(restoreStatusValue\) \|\| restoreStatusValue === "ABNORMAL"/);
-  for (const marker of ['status: "RESOLVED"', "resolvedAt: new Date()", "status: restoreStatus", "syncProductStatusFromParts"]) {
-    assert.match(partAbnormalResolvePost, new RegExp(escapeRegExp(marker)));
-  }
-  assert.doesNotMatch(partAbnormalResolvePost, /fromStatus/);
+test("处理异常不要求 Client 提交恢复状态并兼容校验旧字段", () => {
+  assert.match(partAbnormalResolvePost, /body\.status \?\? body\.restoreStatus/);
+  assert.match(partAbnormalResolvePost, /requestedStatus/);
+  assert.match(partAbnormalResolvePost, /resolvePartAbnormal\(\{/);
+  assert.doesNotMatch(partAbnormalResolvePost, /status: restoreStatus|productPartAbnormal\.update/);
 });
-test("处理异常保持原错误和并发现状", () => {
-  assert.match(partAbnormalResolvePost, /message === "未找到未处理的生产异常。" \? 404 : 400/);
-  assert.doesNotMatch(partAbnormalResolvePost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|updateMany/i);
+test("处理异常使用稳定错误且 Route 不实现事务", () => {
+  assert.match(partAbnormalResolvePost, /stableErrorResponse\(error\)/);
+  assert.doesNotMatch(partAbnormalResolvePost, /errorMessage|await prisma\.\$transaction|prisma\.\$transaction\(|updateMany/);
 });
 
 test("标记生产完成精确要求五项生产权限", () => {
   assertAllPermissions(productionCompletePost, ["order.view", "product.view", "part.view", "production.view", "production.completeProduct"]);
 });
-test("标记生产完成鉴权早于 params 和事务", () => {
+test("标记生产完成鉴权早于 params 和完整性服务", () => {
   assertBefore(productionCompletePost, "requireApiAllPermissions", "context.params");
-  assertBefore(productionCompletePost, "requireApiAllPermissions", "prisma.$transaction");
+  assertBefore(productionCompletePost, "requireApiAllPermissions", "markProductProductionComplete");
 });
-test("标记生产完成保持数量和 WAIT_DELIVERY 快速完成语义", () => {
-  assert.match(productionCompletePost, /returnedQuantity: part\.totalQuantity/);
-  assert.match(productionCompletePost, /missingQuantity: 0/);
-  assert.match(productionCompletePost, /status: "RETURNED"/);
-  assert.equal(occurrenceCount(productionCompletePost, 'data: { status: "WAIT_DELIVERY" }'), 2);
-  assert.doesNotMatch(productionCompletePost, /outsourcedQuantity:\s*(?:0|part\.)/);
+test("标记生产完成 Route 不接收数量并委托完整性服务", () => {
+  assert.match(productionCompletePost, /markProductProductionComplete\(\{/);
+  assert.match(productionCompletePost, /productId: id/);
+  assert.doesNotMatch(productionCompletePost, /returnedQuantity|missingQuantity|outsourcedQuantity|productPart\.update/);
 });
-test("标记生产完成保持成功、错误和并发现状", () => {
-  assert.match(productionCompletePost, /NextResponse\.json\(\{ success: true \}\)/);
-  assert.match(
-    productionCompletePost,
-    /jsonError\(errorMessage\(error,\s*"\\u6807\\u8bb0\\u751f\\u4ea7\\u5b8c\\u6210\\u5931\\u8d25"\)\)/,
-  );
-  assert.doesNotMatch(productionCompletePost, /P2025|P2002|P2003|P2034|SQLITE_BUSY|database is locked|updateMany/i);
+test("标记生产完成返回服务结果并使用稳定错误", () => {
+  assert.match(productionCompletePost, /NextResponse\.json\(result\)/);
+  assert.match(productionCompletePost, /stableErrorResponse\(error\)/);
+  assert.doesNotMatch(productionCompletePost, /errorMessage|await prisma\.\$transaction|prisma\.\$transaction\(|updateMany/);
 });
 
 test("五个 C3e-1 Route 均移除 requireApiUser 并立即返回权限失败", () => {
@@ -1535,6 +1537,162 @@ test("设主图 Route 统一映射稳定业务错误并保留未知 500", () => 
 test("设主图实际 HTTP 方法仍为 POST", () => {
   assert.match(source.drawingMain, /export async function POST\(/);
   assert.doesNotMatch(source.drawingMain, /export async function (?:PATCH|DELETE)\(/);
+});
+
+test("生产齐套完整性服务导出五项批准操作", () => {
+  for (const name of ["advancePartProduction", "reportPartAbnormal", "resolvePartAbnormal", "markProductProductionComplete", "refreshKittingState"]) {
+    assert.match(source.productionKittingIntegrity, new RegExp(`export async function ${name}`));
+  }
+});
+test("完整性服务不导入全局 prisma、NextResponse 或环境测试开关", () => {
+  assert.doesNotMatch(source.productionKittingIntegrity, /@\/lib\/prisma|NextResponse|process\.env/);
+});
+test("完整性服务固定最多三次完整事务", () => {
+  assert.match(source.productionKittingIntegrity, /MAX_PRODUCTION_WRITE_ATTEMPTS = 3/);
+  assert.match(source.productionKittingIntegrity, /attempt <= MAX_PRODUCTION_WRITE_ATTEMPTS/);
+});
+test("P2034 被严格识别为瞬态并发错误", () => {
+  assert.match(source.productionKittingIntegrity, /isKnownPrismaError\(error, "P2034"\)/);
+});
+test("P1008 同时要求 SQLite socket-timeout 特征", () => {
+  assert.match(source.productionKittingIntegrity, /isKnownPrismaError\(error, "P1008"\)[\s\S]*?Socket timeout/);
+  assert.match(source.productionKittingIntegrity, /database failed to respond to a query within the configured timeout/);
+});
+test("未知请求只接受 SQLITE_BUSY 或 database is locked", () => {
+  assert.match(source.productionKittingIntegrity, /PrismaClientUnknownRequestError/);
+  assert.match(source.productionKittingIntegrity, /SQLITE_BUSY.*database is locked/);
+});
+test("P2002、P2003 和 P2025 不进入锁重试", () => {
+  assert.match(source.productionKittingIntegrity, /P2002[\s\S]*?P2003[\s\S]*?P2025[\s\S]*?throw concurrentStateError/);
+  assertBefore(source.productionKittingIntegrity, 'isKnownPrismaError(error, "P2025")', "isTransientProductionSqliteError(error)");
+});
+test("锁耗尽返回精确 503 文案", () => {
+  assert.match(source.productionKittingIntegrity, /ProductionKittingError\(503, "系统繁忙，请稍后重试。"/);
+});
+test("未知错误统一为稳定 500", () => {
+  assert.match(source.productionKittingIntegrity, /ProductionKittingError\(500, "操作失败，请稍后重试。"/);
+});
+test("推进读取并比对 expectedStatus", () => {
+  assert.match(source.productionKittingIntegrity, /part\.status !== expectedStatus/);
+});
+test("推进条件更新同时包含 id 和 expectedStatus", () => {
+  assert.match(source.productionKittingIntegrity, /productPart\.updateMany\(\{[\s\S]*?id: part\.id,[\s\S]*?status: expectedStatus/);
+});
+test("推进条件更新 count 失败映射 409", () => {
+  assert.match(source.productionKittingIntegrity, /if \(update\.count !== 1\) throw concurrentStateError\(\)/);
+});
+test("推进成功后才创建 ProgressLog", () => {
+  assertBefore(source.productionKittingIntegrity, "if (update.count !== 1) throw concurrentStateError()", "productPartProgressLog.create");
+});
+test("推进拒绝 COMPLETED 订单", () => {
+  assert.match(source.productionKittingIntegrity, /part\.order\.status === "COMPLETED"[\s\S]*?已完成订单不能执行生产操作。/);
+});
+test("推进不修改三个数量字段", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "export async function advancePartProduction", "export async function reportPartAbnormal");
+  assert.doesNotMatch(block, /returnedQuantity|missingQuantity|outsourcedQuantity/);
+});
+test("产品状态纯推导保护部分送货和完成", () => {
+  assert.match(source.productProgress, /deliveryControlledStatuses[\s\S]*?"PARTIAL_DELIVERED", "COMPLETED"/);
+  assert.match(source.productProgress, /calculateProtectedProductStatus/);
+});
+test("订单状态纯推导保护部分送货和完成", () => {
+  assert.match(source.productProgress, /deliveryControlledOrderStatuses[\s\S]*?"PARTIAL_DELIVERED", "COMPLETED"/);
+  assert.match(source.productProgress, /calculateOrderStatusFromProducts/);
+});
+test("登记异常先查询 OPEN 异常", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "export async function reportPartAbnormal", "export async function resolvePartAbnormal");
+  assert.match(block, /productPartAbnormal\.findFirst[\s\S]*?status: "OPEN"/);
+});
+test("登记异常的 ABNORMAL 和重复 OPEN 均返回 409", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "export async function reportPartAbnormal", "export async function resolvePartAbnormal");
+  assert.equal(occurrenceCount(block, "该部件已有未处理异常。"), 2);
+});
+test("登记异常先条件更新 Part 再创建异常", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "export async function reportPartAbnormal", "export async function resolvePartAbnormal");
+  assertBefore(block, "productPart.updateMany", "productPartAbnormal.create");
+  assertBefore(block, "if (partUpdate.count !== 1)", "productPartAbnormal.create");
+});
+test("登记异常保存真实旧状态为 fromStatus", () => {
+  assert.match(source.productionKittingIntegrity, /fromStatus: part\.status/);
+});
+test("处理异常恢复目标固定来自 fromStatus", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "export async function resolvePartAbnormal", "export async function markProductProductionComplete");
+  assert.match(block, /status: abnormal\.fromStatus/);
+});
+test("旧 Client 不同恢复状态被稳定拒绝", () => {
+  assert.match(source.productionKittingIntegrity, /requestedStatus !== abnormal\.fromStatus[\s\S]*?异常只能恢复到登记前状态。/);
+});
+test("处理异常同时条件更新异常和 Part", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "export async function resolvePartAbnormal", "export async function markProductProductionComplete");
+  assert.match(block, /productPartAbnormal\.updateMany/);
+  assert.match(block, /productPart\.updateMany/);
+});
+test("处理异常两个条件更新都校验 count", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "export async function resolvePartAbnormal", "export async function markProductProductionComplete");
+  assert.match(block, /abnormalUpdate\.count !== 1/);
+  assert.match(block, /partUpdate\.count !== 1/);
+});
+test("未外发快速完成写 returned=total 和 missing=0", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "export async function markProductProductionComplete", "export async function refreshKittingState");
+  assert.match(block, /isNeverOutsourced[\s\S]*?returnedQuantity: part\.totalQuantity,[\s\S]*?missingQuantity: 0/);
+});
+test("已外发部件要求真实全部回厂", () => {
+  assert.match(source.productionKittingIntegrity, /part\.returnedQuantity < part\.totalQuantity[\s\S]*?part\.missingQuantity !== 0[\s\S]*?part\.returnedQuantity < part\.outsourcedQuantity/);
+});
+test("已外发快速完成只更新状态", () => {
+  assert.match(source.productionKittingIntegrity, /: \{\s*status: "RETURNED"\s*\}/);
+});
+test("快速完成条件快照包含全部数量和状态字段", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "export async function markProductProductionComplete", "export async function refreshKittingState");
+  for (const marker of ["status: part.status", "totalQuantity: part.totalQuantity", "outsourcedQuantity: part.outsourcedQuantity", "returnedQuantity: part.returnedQuantity", "missingQuantity: part.missingQuantity"]) {
+    assert.match(block, new RegExp(escapeRegExp(marker)));
+  }
+});
+test("快速完成不写 outsourcedQuantity", () => {
+  const block = sourceSlice(source.productionKittingIntegrity, "data: isNeverOutsourced", "if (update.count !== 1)");
+  assert.doesNotMatch(block, /outsourcedQuantity/);
+});
+test("快速完成拒绝未处理异常", () => {
+  assert.match(source.productionKittingIntegrity, /产品仍有未处理异常，不能标记生产完成。/);
+});
+test("快速完成保护送货状态产品", () => {
+  assert.match(source.productionKittingIntegrity, /deliveryControlledProductStatuses\.has\(product\.status\)/);
+});
+test("齐套结果计入 OPEN 异常", () => {
+  assert.match(source.kittingLib, /calculateKittingResult\(product: KittingProduct, hasOpenAbnormal = false\)/);
+  assert.match(source.kittingLib, /hasOpenAbnormal \|\| product\.status === "ABNORMAL"/);
+});
+test("齐套失败支持 WAIT_DELIVERY 回退", () => {
+  assert.match(source.productionKittingIntegrity, /product\.status === "WAIT_DELIVERY"[\s\S]*?calculateKittingRollbackStatus/);
+});
+test("齐套回退纯函数按真实数量识别部分回厂", () => {
+  assert.match(source.kittingLib, /calculateKittingRollbackStatus/);
+  assert.match(source.kittingLib, /returnedQuantity > 0[\s\S]*?return "PARTIAL_RETURN"/);
+});
+test("齐套 Product 更新使用旧状态条件和 count", () => {
+  const block = source.productionKittingIntegrity.slice(source.productionKittingIntegrity.indexOf("export async function refreshKittingState"));
+  assert.match(block, /product\.updateMany\(\{[\s\S]*?status: product\.status/);
+  assert.match(block, /productUpdate\.count !== 1/);
+});
+test("订单同步使用旧状态条件和 count", () => {
+  assert.match(source.productionKittingIntegrity, /order\.updateMany\(\{[\s\S]*?status: order\.status/);
+  assert.match(source.productionKittingIntegrity, /if \(update\.count !== 1\) throw concurrentStateError/);
+});
+test("五个写 Route 全部停止通用 error.message 回显", () => {
+  for (const route of [source.partAdvance, source.partAbnormal, source.partAbnormalResolve, source.productionComplete]) {
+    assert.doesNotMatch(route, /error instanceof Error \? error\.message|errorMessage\(/);
+  }
+  assert.doesNotMatch(kittingPost, /errorMessage\(/);
+});
+test("完整性服务稳定错误不向响应暴露 cause", () => {
+  assert.match(source.productionKittingIntegrity, /readonly cause\?: unknown/);
+  for (const route of [source.partAdvance, source.partAbnormal, source.partAbnormalResolve, source.productionComplete]) {
+    assert.doesNotMatch(route, /json\(\{[^}]*cause/);
+  }
+});
+test("完整性服务数量写入仅属于未外发快速完成", () => {
+  assert.equal(occurrenceCount(source.productionKittingIntegrity, "returnedQuantity: part.totalQuantity"), 1);
+  assert.equal(occurrenceCount(source.productionKittingIntegrity, "missingQuantity: 0"), 1);
 });
 
 test("API 静态测试仍不连接数据库、不启动服务或写文件", () => {

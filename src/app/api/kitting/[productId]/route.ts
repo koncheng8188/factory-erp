@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireApiAllPermissions, requireApiPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
-import { getProductKitting, refreshProductKittingStatus } from "@/lib/kitting";
+import { getProductKitting } from "@/lib/kitting";
+import {
+  ProductionKittingError,
+  refreshKittingState
+} from "@/lib/production-kitting-integrity";
 
 type RouteContext = {
   params: Promise<{ productId: string }>;
@@ -37,13 +41,13 @@ export async function POST(_request: Request, context: RouteContext) {
     "kitting.execute",
   ]);
   if (!authResult.ok) return authResult.response;
+  // 事务由完整性服务内部通过 prisma.$transaction 执行。
   try {
     const { productId } = await context.params;
-    const kitting = await prisma.$transaction((tx) => refreshProductKittingStatus(tx, productId));
-
-    if (!kitting) {
-      return NextResponse.json({ error: "产品不存在。" }, { status: 404 });
-    }
+    const kitting = await refreshKittingState({
+      client: prisma,
+      productId
+    });
 
     const { result } = kitting;
     if (!result.hasParts) {
@@ -71,6 +75,11 @@ export async function POST(_request: Request, context: RouteContext) {
       message: "齐套检查完成，产品已进入待送货。"
     });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "执行齐套检查失败。") }, { status: 500 });
+    if (error instanceof ProductionKittingError) {
+      if (error.status >= 500) console.error("执行齐套检查失败。", error.cause ?? error);
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error("执行齐套检查失败。", error);
+    return NextResponse.json({ error: "操作失败，请稍后重试。" }, { status: 500 });
   }
 }

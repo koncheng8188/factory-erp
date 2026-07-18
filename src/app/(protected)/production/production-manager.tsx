@@ -319,7 +319,15 @@ export function ProductionManager({
     setError("");
     setUpdatingPartId(part.id);
 
-    const response = await fetch(`/api/parts/${part.id}/advance`, { method: "POST" });
+    const response = await fetch(`/api/parts/${part.id}/advance`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        expectedStatus: part.status
+      })
+    });
     const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查服务端日志。" }));
 
     setUpdatingPartId(null);

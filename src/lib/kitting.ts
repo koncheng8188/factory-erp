@@ -1,5 +1,6 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, ProductPartStatus, ProductStatus } from "@prisma/client";
 import type { prisma } from "@/lib/prisma";
+import { calculateProductStatusFromParts } from "@/lib/product-progress";
 
 type KittingPart = {
   id: string;
@@ -8,7 +9,7 @@ type KittingPart = {
   totalQuantity: number;
   outsourcedQuantity: number;
   returnedQuantity: number;
-  status: string;
+  status: ProductPartStatus;
 };
 
 type KittingProduct = {
@@ -17,7 +18,7 @@ type KittingProduct = {
   productName: string;
   specification: string | null;
   quantity: number;
-  status: string;
+  status: ProductStatus;
   parts: KittingPart[];
 };
 
@@ -51,7 +52,7 @@ export function calculateMissingQuantity(part: Pick<KittingPart, "totalQuantity"
   return Math.max(part.totalQuantity - part.returnedQuantity, 0);
 }
 
-export function calculateKittingResult(product: KittingProduct): KittingResult {
+export function calculateKittingResult(product: KittingProduct, hasOpenAbnormal = false): KittingResult {
   const parts = product.parts.map((part) => ({
     ...part,
     missingQuantity: calculateMissingQuantity(part)
@@ -66,7 +67,7 @@ export function calculateKittingResult(product: KittingProduct): KittingResult {
       missingQuantity: part.missingQuantity
     }));
   const isQuantityComplete = hasParts && missingParts.length === 0;
-  const hasAbnormal = product.status === "ABNORMAL" || parts.some((part) => part.status === "ABNORMAL");
+  const hasAbnormal = hasOpenAbnormal || product.status === "ABNORMAL" || parts.some((part) => part.status === "ABNORMAL");
   const canUpdateToWaitDelivery = isQuantityComplete && !hasAbnormal && !protectedProductStatuses.has(product.status);
 
   let message = "已齐套";
@@ -87,6 +88,17 @@ export function calculateKittingResult(product: KittingProduct): KittingResult {
     missingParts,
     parts
   };
+}
+
+export function calculateKittingRollbackStatus(
+  parts: Array<Pick<KittingPart, "status" | "totalQuantity" | "outsourcedQuantity" | "returnedQuantity">>
+): ProductStatus {
+  const status = calculateProductStatusFromParts(parts);
+  if (status !== "WAIT_DELIVERY") return status;
+  if (parts.every((part) => part.returnedQuantity >= part.totalQuantity)) return status;
+  if (parts.some((part) => part.returnedQuantity > 0)) return "PARTIAL_RETURN";
+  if (parts.some((part) => part.outsourcedQuantity > 0)) return "OUTSOURCING";
+  return "PENDING";
 }
 
 export async function getProductKitting(tx: KittingTx, productId: string) {
@@ -112,6 +124,14 @@ export async function getProductKitting(tx: KittingTx, productId: string) {
           returnedQuantity: true,
           status: true
         }
+      },
+      partAbnormals: {
+        where: {
+          status: "OPEN"
+        },
+        select: {
+          id: true
+        }
       }
     }
   });
@@ -120,9 +140,10 @@ export async function getProductKitting(tx: KittingTx, productId: string) {
     return null;
   }
 
+  const { partAbnormals, ...publicProduct } = product;
   return {
-    product,
-    result: calculateKittingResult(product)
+    product: publicProduct,
+    result: calculateKittingResult(publicProduct, partAbnormals.length > 0)
   };
 }
 
