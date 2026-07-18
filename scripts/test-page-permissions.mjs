@@ -28,6 +28,8 @@ const files = {
   outsourcingManager: "src/app/(protected)/outsourcing/outsourcing-manager.tsx",
   outsourceNew: "src/app/(protected)/outsourcing/new/page.tsx",
   outsourceCreateManager: "src/app/(protected)/outsourcing/new/outsource-create-manager.tsx",
+  returnNew: "src/app/(protected)/returns/new/page.tsx",
+  returnCreateManager: "src/app/(protected)/returns/new/return-create-manager.tsx",
   delivery: "src/app/(protected)/delivery/page.tsx",
   orderDetail: "src/app/(protected)/orders/[id]/page.tsx",
   orderManager: "src/app/(protected)/orders/[id]/order-detail-manager.tsx",
@@ -173,8 +175,9 @@ test("送货详情严格按鉴权、params、Prisma、notFound 顺序", () => {
   assertBefore(source.deliveryDetail, "await params", "prisma.deliveryOrder.findFirst");
   assertBefore(source.deliveryDetail, "prisma.deliveryOrder.findFirst", "notFound()");
 });
-test("回厂和送货列表未提前接入创建或打印权限", () => {
-  assert.doesNotMatch(source.returns, /return\.(?:create|print)/);
+test("回厂列表只将创建权限用于入口且不提前接入打印权限", () => {
+  assert.match(source.returns, /return\.create/);
+  assert.doesNotMatch(source.returns, /return\.print/);
 });
 test("六个角色默认都具有回厂和送货查看权限", () => {
   for (const role of ["ADMIN", "OWNER", "SALES", "PRODUCTION", "OUTSOURCE", "DELIVERY"]) {
@@ -398,14 +401,14 @@ test("delivery.create 仅作为送货入口组合条件使用", () => assert.mat
 test("新建订单同时要求订单查看和创建权限", () => assert.match(source.dashboard, /const canCreateOrders = canViewOrders && hasPermission\(user\.role, "order\.create", \[\]\)/));
 test("生产进度入口复用生产查看权限", () => assert.match(source.dashboard, /\.\.\.\(canViewProduction \? \[\{ label: "生产进度", href: "\/production" \}\] : \[\]\)/));
 test("新建外发单使用完整六项资源链权限", () => assert.match(source.dashboard, /const canCreateOutsourceOrder =\s+hasPermission\(user\.role, "order\.view", \[\]\) &&\s+hasPermission\(user\.role, "product\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.view", \[\]\) &&\s+hasPermission\(user\.role, "drawing\.view", \[\]\) &&\s+hasPermission\(user\.role, "outsource\.view", \[\]\) &&\s+hasPermission\(user\.role, "outsource\.create", \[\]\)/));
-test("回厂登记同时要求回厂查看和创建权限", () => assert.match(source.dashboard, /const canCreateReturns = canViewReturns && hasPermission\(user\.role, "return\.create", \[\]\)/));
+test("回厂登记使用完整七项创建资源链权限", () => assert.match(source.dashboard, /const canCreateOutsourceReturn =\s+hasPermission\(user\.role, "order\.view", \[\]\) &&\s+hasPermission\(user\.role, "product\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.view", \[\]\) &&\s+hasPermission\(user\.role, "drawing\.view", \[\]\) &&\s+hasPermission\(user\.role, "outsource\.view", \[\]\) &&\s+hasPermission\(user\.role, "return\.view", \[\]\) &&\s+hasPermission\(user\.role, "return\.create", \[\]\)/));
 test("新建送货单同时要求送货查看和创建权限", () => assert.match(source.dashboard, /const canCreateDeliveryAction = canViewDeliverySummary && canCreateDelivery/));
 test("系统备份要求 backup.view", () => assert.match(source.dashboard, /const canViewBackup = hasPermission\(user\.role, "backup\.view", \[\]\)/));
 test("生产日报同时要求查看和打印权限", () => assert.match(source.dashboard, /const canPrintProductionDaily = hasPermission\(user\.role, "production\.daily\.view", \[\]\)\s+&& hasPermission\(user\.role, "production\.daily\.print", \[\]\)/));
 test("生产异常清单同时要求查看和打印权限", () => assert.match(source.dashboard, /const canPrintProductionAbnormal = canViewProductionAbnormal\s+&& hasPermission\(user\.role, "production\.abnormal\.print", \[\]\)/));
 test("生产进度跟踪表同时要求查看和打印权限", () => assert.match(source.dashboard, /const canPrintProductionProgress = canViewProduction\s+&& hasPermission\(user\.role, "production\.print", \[\]\)/));
 test("常用操作数组按权限条件构造", () => {
-  for (const gate of ["canCreateOrders", "canViewProduction", "canCreateOutsourceOrder", "canCreateReturns", "canCreateDeliveryAction", "canViewBackup"]) assert.match(source.dashboard, new RegExp(`\\.\\.\\.\\(${gate} \\? \\[\\{ label:`));
+  for (const gate of ["canCreateOrders", "canViewProduction", "canCreateOutsourceOrder", "canCreateOutsourceReturn", "canCreateDeliveryAction", "canViewBackup"]) assert.match(source.dashboard, new RegExp(`\\.\\.\\.\\(${gate} \\? \\[\\{ label:`));
 });
 test("常用打印数组按权限条件构造", () => {
   for (const gate of ["canPrintProductionDaily", "canPrintProductionAbnormal", "canPrintProductionProgress"]) assert.match(source.dashboard, new RegExp(`\\.\\.\\.\\(${gate} \\? \\[\\{ label:`));
@@ -443,7 +446,9 @@ test("外发打印入口检查 outsource.print", () => assert.match(source.outso
 test("外发打印入口检查 drawing.view", () => assert.match(source.outsourceDetail, /hasPermission\(user\.role, "drawing\.view", \[\]\)/));
 test("外发打印入口由 canPrintOutsource 条件渲染", () => assert.match(source.outsourceDetail, /\{canPrintOutsource \? \(\s+<Link\s+href=\{`\/outsourcing\/\$\{outsourceOrder\.id\}\/print`\}/));
 test("外发详情页不使用图纸原件或图纸打印权限", () => assert.doesNotMatch(source.outsourceDetail, /drawing\.viewOriginal|drawing\.print/));
-test("外发详情页不额外要求 order.view", () => assert.doesNotMatch(source.outsourceDetail, /order\.view/));
+test("外发详情页不把创建资源权限升级为基础页面门禁", () => {
+  assert.doesNotMatch(source.outsourceDetail, /requirePagePermission\("order\.view"\)|requirePageAllPermissions/);
+});
 test("外发详情页保留原打印 URL 与 Prisma 查询", () => {
   assert.match(source.outsourceDetail, /\/outsourcing\/\$\{outsourceOrder\.id\}\/print/);
   assert.match(source.outsourceDetail, /prisma\.outsourceOrder\.findFirst/);
@@ -1442,7 +1447,7 @@ test("生产页创建 Boolean 精确使用六项权限并传给 Client", () => {
   assert.match(source.production, /canCreateOutsourceOrder=\{canCreateOutsourceOrder\}/);
 });
 test("生产待外发入口按创建 Boolean 独立裁剪", () => {
-  assert.match(source.productionManager, /part\.status !== "WAIT_OUTSOURCE" \|\| canCreateOutsourceOrder/);
+  assert.match(source.productionManager, /part\.status === "WAIT_OUTSOURCE"\s+\? canCreateOutsourceOrder\s+: canCreateOutsourceReturn/);
   assert.match(source.productionManager, /\{canRenderLinkAction \? \(\s+<Link[\s\S]*?href=\{linkAction\.href\}/);
   for (const marker of ["canUpdateProductionProgress", "canReportProductionAbnormal"]) assert.match(source.productionManager, new RegExp(marker));
 });
@@ -1459,6 +1464,82 @@ test("订单详情外发入口按创建 Boolean 裁剪且原 Boolean 保持", ()
 test("四个直达外发创建入口全部使用统一 Boolean", () => {
   for (const content of [source.outsourcingManager, source.dashboard, source.productionManager, source.orderManager]) {
     assert.match(content, /canCreateOutsourceOrder/);
+  }
+});
+
+const outsourceReturnCreateBooleanPattern =
+  /const canCreateOutsourceReturn =\s+hasPermission\(user\.role, "order\.view", \[\]\) &&\s+hasPermission\(user\.role, "product\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.view", \[\]\) &&\s+hasPermission\(user\.role, "drawing\.view", \[\]\) &&\s+hasPermission\(user\.role, "outsource\.view", \[\]\) &&\s+hasPermission\(user\.role, "return\.view", \[\]\) &&\s+hasPermission\(user\.role, "return\.create", \[\]\)/;
+
+test("回厂列表继续只以 return.view 作为基础查看门禁", () => {
+  assert.equal(occurrenceCount(source.returns, 'requirePagePermission("return.view")'), 1);
+  assertBefore(source.returns, 'requirePagePermission("return.view")', "await searchParams");
+  assertBefore(source.returns, 'requirePagePermission("return.view")', "prisma.outsourceReturn.findMany");
+});
+test("回厂列表创建 Boolean 精确使用七项权限和空覆盖", () => {
+  assert.match(source.returns, outsourceReturnCreateBooleanPattern);
+});
+test("回厂列表创建意图入口由 Boolean 进行 DOM 裁剪", () => {
+  assert.match(source.returns, /\{canCreateOutsourceReturn \? \(\s+<Link[\s\S]*?选择外发单登记[\s\S]*?\) : null\}/);
+  assert.doesNotMatch(source.returns, /disabled=\{!?canCreateOutsourceReturn\}|(?:hidden|invisible)[\s\S]{0,160}canCreateOutsourceReturn/);
+});
+test("回厂新建页权限判断早于 searchParams 和 Prisma", () => {
+  assert.match(source.returnNew, outsourceReturnCreateBooleanPattern);
+  assertBefore(source.returnNew, 'requirePagePermission("return.view")', "const canCreateOutsourceReturn");
+  assertBefore(source.returnNew, "if (!canCreateOutsourceReturn)", "await searchParams");
+  assertBefore(source.returnNew, "if (!canCreateOutsourceReturn)", "prisma.outsourceOrder.findUnique");
+});
+test("回厂新建页无权限时不实例化创建 Client", () => {
+  assertBefore(source.returnNew, "if (!canCreateOutsourceReturn)", "<ReturnCreateManager");
+  assert.match(source.returnNew, /没有登记回厂的权限。/);
+});
+test("回厂新建页只向 Client 传最小 Boolean", () => {
+  const managerProps = sourceSlice(source.returnNew, "<ReturnCreateManager", "/>");
+  assert.match(managerProps, /canCreateOutsourceReturn=\{canCreateOutsourceReturn\}/);
+  assert.doesNotMatch(managerProps, /\b(?:user|role|permissions?|overrides)=/i);
+});
+test("回厂创建 Client 只声明创建 Boolean", () => {
+  assert.match(source.returnCreateManager, /canCreateOutsourceReturn: boolean/);
+  assert.doesNotMatch(source.returnCreateManager, /\b(?:user|role|permissions?|overrides)\s*:/i);
+});
+test("回厂创建 Client 在状态更新、请求体和 fetch 前检查权限", () => {
+  const body = functionBody(source.returnCreateManager, "async function submitForm");
+  assertBefore(body, "if (!canCreateOutsourceReturn) return", 'setMessage("")');
+  assertBefore(body, "if (!canCreateOutsourceReturn) return", "JSON.stringify");
+  assertBefore(body, "if (!canCreateOutsourceReturn) return", 'fetch("/api/returns"');
+});
+test("回厂创建 Client 提交按钮由 Boolean 裁剪且 disabled 只绑定处理中", () => {
+  assert.match(source.returnCreateManager, /\{canCreateOutsourceReturn \? \(\s+<button[\s\S]*?保存回厂记录[\s\S]*?\) : null\}/);
+  assert.match(source.returnCreateManager, /disabled=\{isPending\}/);
+  assert.doesNotMatch(source.returnCreateManager, /disabled=\{!?canCreateOutsourceReturn\}/);
+});
+test("外发详情回厂入口使用统一 Boolean 裁剪", () => {
+  assert.match(source.outsourceDetail, outsourceReturnCreateBooleanPattern);
+  assert.match(source.outsourceDetail, /\{canCreateOutsourceReturn \? \(\s+<Link[\s\S]*?\/returns\/new\?outsourceOrderId=[\s\S]*?登记回厂[\s\S]*?\) : null\}/);
+  assert.equal(occurrenceCount(source.outsourceDetail, 'requirePagePermission("outsource.view")'), 1);
+});
+test("首页回厂入口使用统一 Boolean 且移除旧名称", () => {
+  assert.match(source.dashboard, outsourceReturnCreateBooleanPattern);
+  assert.match(source.dashboard, /\.\.\.\(canCreateOutsourceReturn \? \[\{ label: "回厂登记", href: "\/returns" \}\] : \[\]\)/);
+  assert.doesNotMatch(source.dashboard, /canCreateReturns/);
+});
+test("生产页传递统一回厂 Boolean 且 Client 独立裁剪回厂入口", () => {
+  assert.match(source.production, outsourceReturnCreateBooleanPattern);
+  assert.match(source.production, /canCreateOutsourceReturn=\{canCreateOutsourceReturn\}/);
+  assert.match(source.productionManager, /canCreateOutsourceReturn: boolean/);
+  assert.match(source.productionManager, /part\.status === "WAIT_OUTSOURCE"\s+\? canCreateOutsourceOrder\s+: canCreateOutsourceReturn/);
+});
+test("页面回厂权限比 API 多 drawing.view 以保护图纸快照", () => {
+  assert.match(source.returnNew, /hasPermission\(user\.role, "drawing\.view", \[\]\)/);
+  assert.match(source.returnNew, /withProtectedOutsourceDrawingUrls/);
+});
+test("四类回厂创建意图入口统一使用 canCreateOutsourceReturn", () => {
+  for (const content of [source.returns, source.outsourceDetail, source.dashboard, source.productionManager]) {
+    assert.match(content, /canCreateOutsourceReturn/);
+  }
+});
+test("C3g-1 页面改动未提前实现并发或稳定错误", () => {
+  for (const content of [source.returns, source.returnNew, source.returnCreateManager, source.outsourceDetail, source.production, source.productionManager]) {
+    assert.doesNotMatch(content, /P2002|P2003|P2025|P1008|P2034|SQLITE_BUSY|database is locked|returns-integrity/i);
   }
 });
 test("C3f-1 页面改动未引入跨模块权限或 C3f-2 业务逻辑", () => {

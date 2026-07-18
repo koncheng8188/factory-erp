@@ -620,8 +620,8 @@ test("外发创建 POST 保持成功结构并只返回稳定错误", () => {
 test("外发创建 POST 不直接实现编号或锁重试", () => {
   assert.doesNotMatch(outsourcingPost, /P2002|P1008|P2034|SQLITE_BUSY|database is locked|MAX_.*ATTEMPTS/i);
 });
-test("回厂列表 route 导入统一 API 权限助手", () => {
-  assert.match(source.returns, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+test("回厂 route 同时导入单权限与完整权限助手", () => {
+  assert.match(source.returns, /import \{ requireApiAllPermissions, requireApiPermission \} from "@\/lib\/auth\/authorization"/);
 });
 test("回厂列表 GET 只要求 return.view", () => {
   assert.equal(occurrenceCount(returnsGet, 'requireApiPermission("return.view")'), 1);
@@ -631,14 +631,78 @@ test("回厂列表 GET 鉴权早于 Prisma 和响应构造", () => {
   assertBefore(returnsGet, 'requireApiPermission("return.view")', "prisma.outsourceReturn.findMany");
   assertBefore(returnsGet, 'requireApiPermission("return.view")', "NextResponse.json({ returns })");
 });
-test("回厂列表 POST 保持 requireApiUser 认证", () => {
-  assert.match(returnsPost, /requireApiUser\(\)/);
-  assert.doesNotMatch(returnsPost, /requireApiPermission/);
+test("回厂 POST 精确要求六项实际资源权限", () => {
+  assert.match(
+    returnsPost,
+    /requireApiAllPermissions\(\[\s*"order\.view",\s*"product\.view",\s*"part\.view",\s*"outsource\.view",\s*"return\.view",\s*"return\.create"\s*\]\)/
+  );
+});
+test("回厂 POST 不要求未读取的 drawing.view", () => {
+  const permissionCall = returnsPost.slice(
+    returnsPost.indexOf("requireApiAllPermissions"),
+    returnsPost.indexOf("]);", returnsPost.indexOf("requireApiAllPermissions")) + 3
+  );
+  assert.doesNotMatch(permissionCall, /drawing\.view/);
+});
+test("回厂 POST 权限检查是第一项业务操作并立即返回", () => {
+  assert.match(returnsPost, /^\s*\{\s*const authResult = await requireApiAllPermissions/);
+  assert.match(returnsPost, /if \(!authResult\.ok\) return authResult\.response/);
+});
+test("回厂 POST 鉴权早于 JSON、日期、明细和事务", () => {
+  for (const marker of ["request.json()", "parseDate(body.returnDate)", "const rawItems", "prisma.$transaction"]) {
+    assertBefore(returnsPost, "requireApiAllPermissions", marker);
+  }
+});
+test("回厂 POST 鉴权早于外发、部件、产品和订单资源访问", () => {
+  for (const marker of [
+    "tx.outsourceOrder.findUnique",
+    "tx.productPart.findUnique",
+    "tx.product.updateMany",
+    "tx.order.findUnique"
+  ]) {
+    assertBefore(returnsPost, "requireApiAllPermissions", marker);
+  }
+});
+test("回厂 POST 不再回退登录助手或单权限助手", () => {
+  assert.doesNotMatch(returnsPost, /requireApiUser|requireApiPermission/);
 });
 test("回厂列表 POST 保留事务与数量状态联动", () => {
   assert.match(returnsPost, /prisma\.\$transaction/);
   assert.match(returnsPost, /returnedQuantity/);
   assert.match(returnsPost, /missingQuantity/);
+});
+test("回厂 POST 保持原请求字段与宽松日期解析", () => {
+  for (const field of ["outsourceOrderId", "returnDate", "items", "handler", "remark"]) {
+    assert.match(returnsPost, new RegExp(`body\\.${field}`));
+  }
+  assert.match(returnsPost, /const returnDate = parseDate\(body\.returnDate\)/);
+});
+test("回厂 POST 保持重复明细和分批回厂规则", () => {
+  assert.match(returnsPost, /duplicateIds\.has\(item\.outsourceOrderItemId\)/);
+  assert.match(returnsPost, /同一外发明细不能重复提交。/);
+  assert.match(returnsPost, /item\.returnQuantity > orderItem\.missingQuantity/);
+});
+test("回厂 POST 保持外发明细绝对数量计算", () => {
+  assert.match(returnsPost, /nextReturnedQuantity = orderItem\.returnedQuantity \+ item\.returnQuantity/);
+  assert.match(returnsPost, /nextMissingQuantity = orderItem\.outsourceQuantity - nextReturnedQuantity/);
+  assert.match(returnsPost, /tx\.outsourceOrderItem\.update/);
+});
+test("回厂 POST 保持 Part Product Order 与外发单状态联动", () => {
+  for (const marker of [
+    "tx.productPart.update",
+    "syncProductStatusFromParts",
+    "tx.order.update",
+    "tx.outsourceOrder.update"
+  ]) {
+    assert.match(returnsPost, new RegExp(marker.replaceAll(".", "\\.")));
+  }
+});
+test("回厂 POST 保持成功响应和当前错误回显语义", () => {
+  assert.match(returnsPost, /NextResponse\.json\(\{ outsourceReturn: result \}\)/);
+  assert.match(returnsPost, /errorMessage\(error, "保存回厂记录失败。"\)/);
+});
+test("回厂 POST 未提前实现 C3g-2 稳定错误或锁重试", () => {
+  assert.doesNotMatch(returnsPost, /P2002|P2003|P2025|P1008|P2034|SQLITE_BUSY|database is locked|MAX_.*ATTEMPTS/i);
 });
 test("四个新增 GET 均无角色、Cookie 或 Session 直读", () => {
   for (const handler of [deliveryGet, deliveryDetailGet, outsourcingGet, returnsGet]) {
@@ -912,11 +976,12 @@ test("客户写接口保持原字段白名单与成功响应", () => {
   assert.match(customerPut, /NextResponse\.json\(\{ customer \}\)/);
   assert.match(customerDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("C3f-1 写权限登记包含二十三个 protected 接口", () => {
+test("C3g-1 写权限登记包含二十四个 protected 接口", () => {
   assert.match(source.writeRegistry, /const protectedHandlers = new Map/);
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 23\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 9\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 24\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 8\)/);
   assert.match(source.writeRegistry, /\["POST \/api\/outsourcing", \{ stage: "C3f-1", permissions:/);
+  assert.match(source.writeRegistry, /\["POST \/api\/returns", \{ stage: "C3g-1", permissions:/);
 });
 
 test("订单写 route 导入全部权限助手且不再导入登录助手", () => {
@@ -1976,9 +2041,9 @@ test("Route响应不包含cause或Prisma错误字段", () => {
 test("C3f-1页面创建权限测试继续保留", () => {
   assert.match(source.pagePermissionTests, /四个直达外发创建入口全部使用统一 Boolean/);
 });
-test("写权限注册表仍保持protected23和pending9", () => {
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 23\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 9\)/);
+test("写权限注册表更新为protected24和pending8", () => {
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 24\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 8\)/);
 });
 test("外发完整性服务不使用环境测试开关或文件系统", () => {
   for (const marker of ["process.env", "node:" + "fs", "read" + "File", "write" + "File", "absolute path"]) {

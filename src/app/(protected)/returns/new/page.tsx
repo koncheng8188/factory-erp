@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { requirePagePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { withProtectedOutsourceDrawingUrls } from "@/lib/drawing-file-url";
+import { hasPermission } from "@/lib/permissions";
 import { ReturnCreateManager } from "./return-create-manager";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +12,29 @@ type NewReturnPageProps = {
 };
 
 export default async function NewReturnPage({ searchParams }: NewReturnPageProps) {
+  const user = await requirePagePermission("return.view");
+  const canCreateOutsourceReturn =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "outsource.view", []) &&
+    hasPermission(user.role, "return.view", []) &&
+    hasPermission(user.role, "return.create", []);
+
+  if (!canCreateOutsourceReturn) {
+    return (
+      <div className="space-y-6">
+        <Link className="text-sm font-medium text-[#475467] hover:text-[#172033]" href="/returns">
+          返回回厂记录列表
+        </Link>
+        <section className="rounded-md border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+          没有登记回厂的权限。
+        </section>
+      </div>
+    );
+  }
+
   const { outsourceOrderId } = await searchParams;
 
   if (!outsourceOrderId) {
@@ -69,6 +94,7 @@ export default async function NewReturnPage({ searchParams }: NewReturnPageProps
 
   return (
     <ReturnCreateManager
+      canCreateOutsourceReturn={canCreateOutsourceReturn}
       outsourceOrder={{
         id: outsourceOrder.id,
         outsourceNo: outsourceOrder.outsourceNo,

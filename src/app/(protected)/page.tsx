@@ -200,7 +200,14 @@ export default async function DashboardPage() {
     hasPermission(user.role, "drawing.view", []) &&
     hasPermission(user.role, "outsource.view", []) &&
     hasPermission(user.role, "outsource.create", []);
-  const canCreateReturns = canViewReturns && hasPermission(user.role, "return.create", []);
+  const canCreateOutsourceReturn =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "outsource.view", []) &&
+    hasPermission(user.role, "return.view", []) &&
+    hasPermission(user.role, "return.create", []);
   const canCreateDeliveryAction = canViewDeliverySummary && canCreateDelivery;
   const canViewBackup = hasPermission(user.role, "backup.view", []);
   const canPrintProductionDaily = hasPermission(user.role, "production.daily.view", [])
@@ -885,7 +892,7 @@ export default async function DashboardPage() {
     ...(canCreateOrders ? [{ label: "新建订单", href: "/orders" }] : []),
     ...(canViewProduction ? [{ label: "生产进度", href: "/production" }] : []),
     ...(canCreateOutsourceOrder ? [{ label: "新建外发单", href: "/outsourcing/new" }] : []),
-    ...(canCreateReturns ? [{ label: "回厂登记", href: "/returns" }] : []),
+    ...(canCreateOutsourceReturn ? [{ label: "回厂登记", href: "/returns" }] : []),
     ...(canCreateDeliveryAction ? [{ label: "新建送货单", href: "/delivery/new" }] : []),
     ...(canViewBackup ? [{ label: "系统备份", href: "/settings/backup" }] : [])
   ];

@@ -78,7 +78,13 @@ function renderDrawingPreview(item: ReturnOrderItem) {
   );
 }
 
-export function ReturnCreateManager({ outsourceOrder }: { outsourceOrder: ReturnOrder }) {
+export function ReturnCreateManager({
+  outsourceOrder,
+  canCreateOutsourceReturn
+}: {
+  outsourceOrder: ReturnOrder;
+  canCreateOutsourceReturn: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState<FormState>({
@@ -151,6 +157,8 @@ export function ReturnCreateManager({ outsourceOrder }: { outsourceOrder: Return
 
   async function submitForm(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canCreateOutsourceReturn) return;
+
     setMessage("");
     setError("");
 
@@ -193,9 +201,11 @@ export function ReturnCreateManager({ outsourceOrder }: { outsourceOrder: Return
           <h1 className="text-2xl font-semibold">外发回厂登记</h1>
           <p className="mt-2 text-sm text-[#667085]">按外发明细登记本次实际回厂数量，支持同一外发单分批回厂。</p>
         </div>
-        <button className="rounded-md bg-[#172033] px-5 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
-          保存回厂记录
-        </button>
+        {canCreateOutsourceReturn ? (
+          <button className="rounded-md bg-[#172033] px-5 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
+            保存回厂记录
+          </button>
+        ) : null}
       </section>
 
       {message ? <div className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div> : null}

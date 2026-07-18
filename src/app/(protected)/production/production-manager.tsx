@@ -80,6 +80,7 @@ type ProductionManagerProps = {
   canUpdateProductionProgress: boolean;
   canReportProductionAbnormal: boolean;
   canCreateOutsourceOrder: boolean;
+  canCreateOutsourceReturn: boolean;
   filters: {
     keyword: string;
     stage: StageFilter;
@@ -282,7 +283,8 @@ export function ProductionManager({
   canPrintProduction,
   canUpdateProductionProgress,
   canReportProductionAbnormal,
-  canCreateOutsourceOrder
+  canCreateOutsourceOrder,
+  canCreateOutsourceReturn
 }: ProductionManagerProps) {
   const router = useRouter();
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
@@ -452,7 +454,10 @@ export function ProductionManager({
     }
 
     if (linkAction) {
-      const canRenderLinkAction = part.status !== "WAIT_OUTSOURCE" || canCreateOutsourceOrder;
+      const canRenderLinkAction =
+        part.status === "WAIT_OUTSOURCE"
+          ? canCreateOutsourceOrder
+          : canCreateOutsourceReturn;
 
       return (
         <div className="space-y-2">

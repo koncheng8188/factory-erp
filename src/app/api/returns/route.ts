@@ -4,8 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeOptional, parseDate } from "@/lib/outsource";
 import { syncProductStatusFromParts } from "@/lib/product-progress";
 import { resolveOutsourceItemStatus, resolvePartStatus } from "@/lib/returns";
-import { requireApiPermission } from "@/lib/auth/authorization";
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiAllPermissions, requireApiPermission } from "@/lib/auth/authorization";
 
 type RawReturnItem = {
   outsourceOrderItemId?: unknown;
@@ -61,7 +60,14 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "product.view",
+    "part.view",
+    "outsource.view",
+    "return.view",
+    "return.create"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const body = await request.json();

@@ -39,6 +39,14 @@ export default async function OutsourceDetailPage({ params }: OutsourceDetailPag
   const canPrintOutsource =
     hasPermission(user.role, "outsource.print", []) &&
     hasPermission(user.role, "drawing.view", []);
+  const canCreateOutsourceReturn =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "outsource.view", []) &&
+    hasPermission(user.role, "return.view", []) &&
+    hasPermission(user.role, "return.create", []);
 
   const { id } = await params;
   const outsourceOrder = await prisma.outsourceOrder.findFirst({
@@ -105,13 +113,15 @@ export default async function OutsourceDetailPage({ params }: OutsourceDetailPag
               打印外发电镀单
             </Link>
           ) : null}
-          <Link
-            href={`/returns/new?outsourceOrderId=${outsourceOrder.id}`}
-            className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
-            style={{ color: "#ffffff" }}
-          >
-            登记回厂
-          </Link>
+          {canCreateOutsourceReturn ? (
+            <Link
+              href={`/returns/new?outsourceOrderId=${outsourceOrder.id}`}
+              className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
+              style={{ color: "#ffffff" }}
+            >
+              登记回厂
+            </Link>
+          ) : null}
         </div>
       </section>
 
