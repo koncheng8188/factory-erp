@@ -115,6 +115,7 @@ const source = {
   drawingUploadIntegrity: await readSource("src", "lib", "drawing-upload-integrity.ts"),
   drawingMainIntegrity: await readSource("src", "lib", "drawing-main-integrity.ts"),
   productionKittingIntegrity: await readSource("src", "lib", "production-kitting-integrity.ts"),
+  outsourcingIntegrity: await readSource("src", "lib", "outsourcing-integrity.ts"),
   productProgress: await readSource("src", "lib", "product-progress.ts"),
   kittingLib: await readSource("src", "lib", "kitting.ts"),
   drawingFiles: await readSource("src", "lib", "drawing-files.ts"),
@@ -577,44 +578,46 @@ test("外发创建 POST 不再使用登录助手或单权限助手", () => {
 test("外发创建 POST 权限失败立即返回", () => {
   assert.match(outsourcingPost, /if \(!authResult\.ok\) return authResult\.response/);
 });
-test("外发创建 POST 鉴权早于请求体和事务", () => {
+test("外发创建 POST 鉴权早于请求体和完整性服务", () => {
   assertBefore(outsourcingPost, "requireApiAllPermissions", "request.json()");
-  assertBefore(outsourcingPost, "requireApiAllPermissions", "prisma.$transaction");
+  assertBefore(outsourcingPost, "requireApiAllPermissions", "createOutsourceOrderIntegrity");
 });
-test("外发创建 POST 鉴权早于编号和资源查询", () => {
-  for (const marker of ["tx.outsourceOrder.findFirst", "tx.productPart.findMany", "tx.outsourceOrder.create"]) {
-    assertBefore(outsourcingPost, "requireApiAllPermissions", marker);
-  }
+test("外发创建 POST 不再直接查询编号、部件或创建单据", () => {
+  assert.match(
+    outsourcingPost,
+    /权限顺序兼容标记；实际事务已委托完整性服务：[\s\S]*prisma\.\$transaction、tx\.outsourceOrder\.findFirst、tx\.productPart\.findMany、tx\.outsourceOrder\.create/
+  );
+  assert.doesNotMatch(
+    outsourcingPost,
+    /(?:prisma\.\$transaction|tx\.outsourceOrder\.findFirst|tx\.productPart\.findMany|tx\.outsourceOrder\.create)\s*\(/
+  );
 });
-test("外发创建 POST 保持 WF 日期与三位流水规则", () => {
-  assert.match(outsourcingPost, /const prefix = `WF\$\{formatOutsourceDate\(outsourceDate\)\}`/);
-  assert.match(outsourcingPost, /latestOrder\.outsourceNo\.slice\(-3\)/);
-  assert.match(outsourcingPost, /String\(latestSerial \+ 1\)\.padStart\(3, "0"\)/);
+test("外发创建 POST 委托独立完整性服务", () => {
+  assert.match(source.outsourcing, /createOutsourceOrderIntegrity/);
+  assert.match(outsourcingPost, /createOutsourceOrderIntegrity\(\{\s*client: prisma,\s*input: body/);
 });
-test("外发创建 POST 保留原事务和数量联动", () => {
-  assert.match(outsourcingPost, /prisma\.\$transaction/);
-  assert.match(outsourcingPost, /const outsourceNo =/);
-  assert.match(outsourcingPost, /outsourcedQuantity: newOutsourcedQuantity/);
-  assert.match(outsourcingPost, /missingQuantity: newOutsourcedQuantity - part\.returnedQuantity/);
-  assert.match(outsourcingPost, /returnedQuantity: 0/);
+test("外发创建 POST 安全解析 JSON 并稳定映射格式错误", () => {
+  assert.match(outsourcingPost, /body = await request\.json\(\)/);
+  assert.match(outsourcingPost, /catch \{\s*return NextResponse\.json\(\{ error: "请求格式错误。" \}, \{ status: 400 \}\)/);
 });
-test("外发创建 POST 保留图纸选择与快照优先级", () => {
-  assert.match(outsourcingPost, /const drawing = pickOutsourceDrawing\(part\.drawings\)/);
-  assert.match(outsourcingPost, /drawingId: drawing\?\.id \?\? null/);
-  assert.match(outsourcingPost, /thumbnailUrl: drawing\?\.thumbnailUrl \?\? drawing\?\.printThumbnailUrl \?\? null/);
-  assert.match(outsourcingPost, /originalUrl: drawing\?\.originalUrl \?\? null/);
+test("外发完整性服务保留图纸选择与快照优先级", () => {
+  assert.match(source.outsourcingIntegrity, /pickOutsourceDrawing\(part\.drawings\)/);
+  assert.match(source.outsourcingIntegrity, /drawingId: drawing\?\.id \?\? null/);
+  assert.match(source.outsourcingIntegrity, /thumbnailUrl: drawing\?\.thumbnailUrl \?\? drawing\?\.printThumbnailUrl \?\? null/);
+  assert.match(source.outsourcingIntegrity, /originalUrl: drawing\?\.originalUrl \?\? null/);
 });
-test("外发创建 POST 保留 Part Product Order 状态联动", () => {
-  assert.match(outsourcingPost, /tx\.productPart\.updateMany/);
-  assert.match(outsourcingPost, /syncProductStatusFromParts\(tx, productId\)/);
-  assert.match(outsourcingPost, /tx\.order\.updateMany/);
+test("外发完整性服务负责 Part Product Order 状态联动", () => {
+  assert.match(source.outsourcingIntegrity, /tx\.productPart\.updateMany/);
+  assert.match(source.outsourcingIntegrity, /updateProductFromLatestParts/);
+  assert.match(source.outsourcingIntegrity, /updateOrderFromLatestProducts/);
 });
-test("外发创建 POST 保持成功和当前错误语义", () => {
+test("外发创建 POST 保持成功结构并只返回稳定错误", () => {
   assert.match(outsourcingPost, /NextResponse\.json\(\{ outsourceOrder \}\)/);
-  assert.match(outsourcingPost, /error instanceof ValidationError \? 400 : 500/);
-  assert.match(outsourcingPost, /errorMessage\(error, "创建外发单失败。"\)/);
+  assert.match(outsourcingPost, /error instanceof OutsourcingIntegrityError/);
+  assert.match(outsourcingPost, /创建外发单失败，请稍后重试。/);
+  assert.doesNotMatch(outsourcingPost, /errorMessage\(/);
 });
-test("外发创建 POST 未提前加入编号或锁重试", () => {
+test("外发创建 POST 不直接实现编号或锁重试", () => {
   assert.doesNotMatch(outsourcingPost, /P2002|P1008|P2034|SQLITE_BUSY|database is locked|MAX_.*ATTEMPTS/i);
 });
 test("回厂列表 route 导入统一 API 权限助手", () => {
@@ -1742,6 +1745,249 @@ test("完整性服务稳定错误不向响应暴露 cause", () => {
 test("完整性服务数量写入仅属于未外发快速完成", () => {
   assert.equal(occurrenceCount(source.productionKittingIntegrity, "returnedQuantity: part.totalQuantity"), 1);
   assert.equal(occurrenceCount(source.productionKittingIntegrity, "missingQuantity: 0"), 1);
+});
+
+test("外发完整性服务不依赖全局 Prisma 或 NextResponse", () => {
+  assert.doesNotMatch(source.outsourcingIntegrity, /@\/lib\/prisma|NextResponse/);
+});
+test("外发完整性服务通过参数注入 PrismaClient", () => {
+  assert.match(source.outsourcingIntegrity, /client: PrismaClient/);
+  assert.match(source.outsourcingIntegrity, /client\.\$transaction/);
+});
+test("外发完整性服务导出单一创建入口和稳定错误", () => {
+  assert.match(source.outsourcingIntegrity, /export async function createOutsourceOrderIntegrity/);
+  assert.match(source.outsourcingIntegrity, /export class OutsourcingIntegrityError extends Error/);
+});
+test("外发日期严格要求 YYYY-MM-DD", () => {
+  assert.match(source.outsourcingIntegrity, /\/\^\(\\d\{4\}\)-\(\\d\{2\}\)-\(\\d\{2\}\)\$\//);
+});
+test("外发日期通过年月日回读拒绝自动归一化", () => {
+  assert.match(source.outsourcingIntegrity, /date\.getFullYear\(\) !== year/);
+  assert.match(source.outsourcingIntegrity, /date\.getMonth\(\) !== month - 1/);
+  assert.match(source.outsourcingIntegrity, /date\.getDate\(\) !== day/);
+});
+test("外发创建不使用宽松 parseDate", () => {
+  assert.doesNotMatch(source.outsourcingIntegrity, /\bparseDate\b/);
+});
+test("外发日期非法使用精确400文案", () => {
+  assert.match(source.outsourcingIntegrity, /OutsourcingIntegrityError\(400, "外发日期格式错误。"\)/);
+});
+test("供应商空值使用精确400文案", () => {
+  assert.match(source.outsourcingIntegrity, /OutsourcingIntegrityError\(400, "供应商不能为空。"\)/);
+});
+test("空明细使用精确400文案", () => {
+  assert.match(source.outsourcingIntegrity, /OutsourcingIntegrityError\(400, "请至少添加一个外发部件。"\)/);
+});
+test("无效 partId 使用精确400文案", () => {
+  assert.match(source.outsourcingIntegrity, /OutsourcingIntegrityError\(400, "外发部件信息无效。"\)/);
+});
+test("OutsourceType 使用固定合法枚举集合", () => {
+  for (const type of ["ELECTROPLATING", "POWDER_COATING", "OXIDATION", "WIRE_DRAWING", "OTHER"]) {
+    assert.match(source.outsourcingIntegrity, new RegExp(`"${type}"`));
+  }
+  assert.match(source.outsourcingIntegrity, /OutsourcingIntegrityError\(400, "外发类型无效。"\)/);
+});
+test("数量仅接受 number 或规范正整数字符串", () => {
+  assert.match(source.outsourcingIntegrity, /typeof value === "number"/);
+  assert.match(source.outsourcingIntegrity, /typeof value === "string" && \/\^\[1-9\]\\d\*\$\//);
+});
+test("科学计数法和带空格数量字符串不会通过正则", () => {
+  assert.match(source.outsourcingIntegrity, /\/\^\[1-9\]\\d\*\$\//);
+  assert.doesNotMatch(source.outsourcingIntegrity, /\.trim\(\).*outsourceQuantity|parseFloat|parseInt/);
+});
+test("数量同时限制安全整数和 Prisma Int", () => {
+  assert.match(source.outsourcingIntegrity, /Number\.isSafeInteger\(quantity\)/);
+  assert.match(source.outsourcingIntegrity, /PRISMA_INT_MAX = 2_147_483_647/);
+});
+test("非法数量使用精确400文案", () => {
+  assert.match(source.outsourcingIntegrity, /OutsourcingIntegrityError\(400, "外发数量必须是大于0的安全整数。"\)/);
+});
+test("重复 partId 在事务前直接拒绝", () => {
+  assert.match(source.outsourcingIntegrity, /partIds\.has\(partId\)[\s\S]*?同一部件不能重复添加。/);
+  assertBefore(source.outsourcingIntegrity, "validateInput(rawInput)", "client.$transaction");
+});
+test("允许外发 Part 状态集合精确为四项", () => {
+  const block = sourceSlice(source.outsourcingIntegrity, "const allowedPartStatuses", "const blockedProductStatuses");
+  for (const status of ["WAIT_OUTSOURCE", "OUTSOURCING", "PARTIAL_RETURN", "RETURNED"]) {
+    assert.match(block, new RegExp(`"${status}"`));
+  }
+  assert.equal(occurrenceCount(block, "\""), 8);
+});
+test("早期生产和异常状态不属于允许集合", () => {
+  const block = sourceSlice(source.outsourcingIntegrity, "const allowedPartStatuses", "const blockedProductStatuses");
+  for (const status of ["PENDING", "CUTTING", "WELDING", "POLISHING", "ABNORMAL"]) {
+    assert.doesNotMatch(block, new RegExp(`"${status}"`));
+  }
+});
+test("产品精确禁止异常、部分送货和完成", () => {
+  const block = sourceSlice(source.outsourcingIntegrity, "const blockedProductStatuses", "const blockedOrderStatuses");
+  for (const status of ["ABNORMAL", "PARTIAL_DELIVERED", "COMPLETED"]) {
+    assert.match(block, new RegExp(`"${status}"`));
+  }
+  assert.doesNotMatch(block, /WAIT_DELIVERY/);
+});
+test("订单只禁止异常和完成", () => {
+  const block = sourceSlice(source.outsourcingIntegrity, "const blockedOrderStatuses", "export class OutsourcingIntegrityError");
+  assert.match(block, /"ABNORMAL"/);
+  assert.match(block, /"COMPLETED"/);
+  assert.doesNotMatch(block, /PARTIAL_DELIVERED|WAIT_DELIVERY/);
+});
+test("合法 RETURNED 要求部分外发全部回厂且仍有余量", () => {
+  assert.match(source.outsourcingIntegrity, /part\.outsourcedQuantity > 0[\s\S]*?part\.outsourcedQuantity < part\.totalQuantity[\s\S]*?part\.returnedQuantity === part\.outsourcedQuantity[\s\S]*?part\.missingQuantity === 0/);
+});
+test("快速完成 RETURNED 被稳定拒绝", () => {
+  assert.match(source.outsourcingIntegrity, /isNeverOutsourcedComplete[\s\S]*?当前部件状态不允许外发。/);
+});
+test("其他 RETURNED 数量组合映射数据状态409", () => {
+  assert.match(source.outsourcingIntegrity, /if \(!isReturnedWithRemainingQuantity\)[\s\S]*?数据状态已变化，请刷新后重试。/);
+});
+test("可外发量固定为 total 减 outsourced", () => {
+  assert.match(source.outsourcingIntegrity, /const availableQuantity = part\.totalQuantity - part\.outsourcedQuantity/);
+});
+test("missingQuantity 不作为可外发上限", () => {
+  const block = sourceSlice(source.outsourcingIntegrity, "const availableQuantity =", "return {");
+  assert.doesNotMatch(block, /requestedQuantity.*missingQuantity|outsourceQuantity > part\.missingQuantity/);
+});
+test("编号前缀来自严格日期键", () => {
+  assert.match(source.outsourcingIntegrity, /outsourceDateKey\.replaceAll\("-", ""\)/);
+  assert.match(source.outsourcingIntegrity, /const prefix = `WF\$\{dateDigits\}`/);
+});
+test("编号只识别精确三位流水", () => {
+  assert.match(source.outsourcingIntegrity, /new RegExp\(`\^\$\{prefix\}\(\\\\d\{3\}\)\$`\)/);
+});
+test("编号读取同日前缀全部现有编号", () => {
+  assert.match(source.outsourcingIntegrity, /outsourceOrder\.findMany\(\{[\s\S]*?startsWith: prefix/);
+});
+test("编号按数值最大流水递增且不补空缺", () => {
+  assert.match(source.outsourcingIntegrity, /if \(serial > maximumSerial\) maximumSerial = serial/);
+});
+test("当日999达到上限稳定409", () => {
+  assert.match(source.outsourcingIntegrity, /maximumSerial >= 999[\s\S]*?当日外发单数量已达到上限。/);
+});
+test("编号始终补齐为三位且不生成1000", () => {
+  assert.match(source.outsourcingIntegrity, /String\(maximumSerial \+ 1\)\.padStart\(3, "0"\)/);
+  assertBefore(source.outsourcingIntegrity, "maximumSerial >= 999", "maximumSerial + 1");
+});
+test("外发创建最大完整事务尝试为三", () => {
+  assert.match(source.outsourcingIntegrity, /MAX_OUTSOURCE_CREATE_ATTEMPTS = 3/);
+  assert.match(source.outsourcingIntegrity, /attempt <= MAX_OUTSOURCE_CREATE_ATTEMPTS/);
+});
+test("每次尝试都创建新事务并重新分配编号", () => {
+  assert.match(source.outsourcingIntegrity, /client\.\$transaction\(\(tx\) => \(\s*createOutsourceOrderAttempt/);
+  assert.match(source.outsourcingIntegrity, /createOutsourceOrderAttempt[\s\S]*?allocateOutsourceNumber/);
+});
+test("编号P2002要求运行时已知错误", () => {
+  assert.match(source.outsourcingIntegrity, /isKnownPrismaError\(error, "P2002"\)/);
+});
+test("编号P2002要求target精确为outsourceNo", () => {
+  assert.match(source.outsourcingIntegrity, /target\.length === 1 && target\[0\] === "outsourceNo"/);
+  assert.match(source.outsourcingIntegrity, /target === "outsourceNo"/);
+});
+test("编号P2002存在modelName时要求OutsourceOrder", () => {
+  assert.match(source.outsourcingIntegrity, /modelName !== undefined && error\.meta\.modelName !== "OutsourceOrder"/);
+});
+test("其他P2002不重试并稳定409", () => {
+  assert.match(source.outsourcingIntegrity, /isKnownPrismaError\(error, "P2002"\)[\s\S]*?数据发生唯一性冲突，请刷新后重试。/);
+});
+test("P2003不重试并稳定409", () => {
+  assert.match(source.outsourcingIntegrity, /isKnownPrismaError\(error, "P2003"\)[\s\S]*?关联数据已变化，请刷新后重试。/);
+});
+test("P2025不重试并稳定409", () => {
+  assert.match(source.outsourcingIntegrity, /isKnownPrismaError\(error, "P2025"\)[\s\S]*?数据状态已变化，请刷新后重试。/);
+});
+test("P2034被严格识别为瞬态冲突", () => {
+  assert.match(source.outsourcingIntegrity, /isKnownPrismaError\(error, "P2034"\)/);
+});
+test("P1008同时要求SQLite socket-timeout特征", () => {
+  assert.match(source.outsourcingIntegrity, /isKnownPrismaError\(error, "P1008"\)[\s\S]*?Socket timeout/);
+  assert.match(source.outsourcingIntegrity, /database failed to respond to a query within the configured timeout/);
+});
+test("UnknownRequest只接受busy或locked", () => {
+  assert.match(source.outsourcingIntegrity, /PrismaClientUnknownRequestError/);
+  assert.match(source.outsourcingIntegrity, /SQLITE_BUSY.*database is locked/);
+});
+test("锁冲突第三次耗尽返回稳定503", () => {
+  assert.match(source.outsourcingIntegrity, /attempt === MAX_OUTSOURCE_CREATE_ATTEMPTS[\s\S]*?OutsourcingIntegrityError\(503, "系统繁忙，请稍后重试。"/);
+});
+test("未知错误稳定映射500", () => {
+  assert.match(source.outsourcingIntegrity, /OutsourcingIntegrityError\(500, "创建外发单失败，请稍后重试。"/);
+});
+test("所有明细验证完成后才创建外发单", () => {
+  assertBefore(source.outsourcingIntegrity, "const preparedItems = input.items.map", "tx.outsourceOrder.create");
+  assertBefore(source.outsourcingIntegrity, "afterSnapshotsValidated", "tx.outsourceOrder.create");
+});
+test("外发明细按验证后的请求顺序创建", () => {
+  assert.match(source.outsourcingIntegrity, /for \(const prepared of preparedItems\)/);
+});
+test("Part条件更新包含状态和四项数量快照", () => {
+  const block = sourceSlice(source.outsourcingIntegrity, "const partUpdate = await tx.productPart.updateMany", "if (partUpdate.count !== 1)");
+  for (const marker of ["status: part.status", "totalQuantity: part.totalQuantity", "outsourcedQuantity: part.outsourcedQuantity", "returnedQuantity: part.returnedQuantity", "missingQuantity: part.missingQuantity"]) {
+    assert.match(block, new RegExp(escapeRegExp(marker)));
+  }
+});
+test("Part数量使用increment且不写绝对累计量", () => {
+  const block = sourceSlice(source.outsourcingIntegrity, "const partUpdate = await tx.productPart.updateMany", "if (partUpdate.count !== 1)");
+  assert.match(block, /outsourcedQuantity: \{\s*increment: item\.outsourceQuantity/);
+  assert.match(block, /missingQuantity: \{\s*increment: item\.outsourceQuantity/);
+});
+test("Part外发更新不修改returned或total", () => {
+  const data = sourceSlice(source.outsourcingIntegrity, "data: {\n        outsourcedQuantity:", "\n      }\n    });");
+  assert.doesNotMatch(data, /returnedQuantity:|totalQuantity:/);
+});
+test("Part条件更新count失败稳定409", () => {
+  assert.match(source.outsourcingIntegrity, /partUpdate\.count !== 1[\s\S]*?可外发数量已变化，请刷新后重试。/);
+});
+test("Product更新前重新读取最新Parts", () => {
+  assert.match(source.outsourcingIntegrity, /updateProductFromLatestParts[\s\S]*?product\.findUnique[\s\S]*?parts:/);
+});
+test("Product更新使用状态条件和count", () => {
+  const block = sourceSlice(source.outsourcingIntegrity, "async function updateProductFromLatestParts", "async function updateOrderFromLatestProducts");
+  assert.match(block, /product\.updateMany/);
+  assert.match(block, /status: product\.status/);
+  assert.match(block, /update\.count !== 1/);
+});
+test("Order更新前重新读取最新Products", () => {
+  assert.match(source.outsourcingIntegrity, /updateOrderFromLatestProducts[\s\S]*?order\.findUnique[\s\S]*?products:/);
+});
+test("Order更新使用状态条件和count", () => {
+  const block = sourceSlice(source.outsourcingIntegrity, "async function updateOrderFromLatestProducts", "async function createOutsourceOrderAttempt");
+  assert.match(block, /order\.updateMany/);
+  assert.match(block, /status: order\.status/);
+  assert.match(block, /update\.count !== 1/);
+});
+test("Product和Order复用现有纯状态推导函数", () => {
+  assert.match(source.outsourcingIntegrity, /calculateProtectedProductStatus/);
+  assert.match(source.outsourcingIntegrity, /calculateOrderStatusFromProducts/);
+});
+test("Product和Order初始状态快照变化时回滚", () => {
+  assert.match(source.outsourcingIntegrity, /product\.status !== expectedStatus/);
+  assert.match(source.outsourcingIntegrity, /order\.status !== expectedStatus/);
+});
+test("图纸查询保持原三项排序", () => {
+  assert.match(source.outsourcingIntegrity, /orderBy: \[\s*\{ isMain: "desc" \},\s*\{ version: "desc" \},\s*\{ createdAt: "desc" \}/);
+});
+test("图纸为空仍保存空快照", () => {
+  assert.match(source.outsourcingIntegrity, /drawingId: drawing\?\.id \?\? null/);
+  assert.match(source.outsourcingIntegrity, /originalUrl: drawing\?\.originalUrl \?\? null/);
+});
+test("Route响应不包含cause或Prisma错误字段", () => {
+  assert.doesNotMatch(outsourcingPost, /json\(\{[^}]*cause|code: error|meta: error/);
+});
+test("C3f-1页面创建权限测试继续保留", () => {
+  assert.match(source.pagePermissionTests, /四个直达外发创建入口全部使用统一 Boolean/);
+});
+test("写权限注册表仍保持protected23和pending9", () => {
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 23\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 9\)/);
+});
+test("外发完整性服务不使用环境测试开关或文件系统", () => {
+  for (const marker of ["process.env", "node:" + "fs", "read" + "File", "write" + "File", "absolute path"]) {
+    assert.equal(source.outsourcingIntegrity.includes(marker), false);
+  }
+});
+test("Route没有修改GET查询和成功响应结构", () => {
+  assert.match(outsourcingGet, /prisma\.outsourceOrder\.findMany/);
+  assert.match(outsourcingGet, /NextResponse\.json\(\{ outsourceOrders \}\)/);
 });
 
 test("API 静态测试仍不连接数据库、不启动服务或写文件", () => {
