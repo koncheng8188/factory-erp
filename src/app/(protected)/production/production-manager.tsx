@@ -79,6 +79,7 @@ type ProductionManagerProps = {
   canPrintProduction: boolean;
   canUpdateProductionProgress: boolean;
   canReportProductionAbnormal: boolean;
+  canCreateOutsourceOrder: boolean;
   filters: {
     keyword: string;
     stage: StageFilter;
@@ -280,7 +281,8 @@ export function ProductionManager({
   filters,
   canPrintProduction,
   canUpdateProductionProgress,
-  canReportProductionAbnormal
+  canReportProductionAbnormal,
+  canCreateOutsourceOrder
 }: ProductionManagerProps) {
   const router = useRouter();
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
@@ -450,15 +452,19 @@ export function ProductionManager({
     }
 
     if (linkAction) {
+      const canRenderLinkAction = part.status !== "WAIT_OUTSOURCE" || canCreateOutsourceOrder;
+
       return (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
-            <Link className="inline-flex rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]" href={linkAction.href}>
-              {linkAction.label}
-            </Link>
+            {canRenderLinkAction ? (
+              <Link className="inline-flex rounded-md border border-[#cfd6e1] px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f6f7f9]" href={linkAction.href}>
+                {linkAction.label}
+              </Link>
+            ) : null}
             {renderAbnormalButton(product, part)}
           </div>
-          <div className="text-xs text-[#667085]">{linkAction.tip}</div>
+          {canRenderLinkAction ? <div className="text-xs text-[#667085]">{linkAction.tip}</div> : null}
         </div>
       );
     }

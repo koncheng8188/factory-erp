@@ -334,7 +334,8 @@ export function OrderDetailManager({
   canSetMainDrawing,
   canObsoleteDrawing,
   canPrintOrder,
-  canCompleteProductionProduct
+  canCompleteProductionProduct,
+  canCreateOutsourceOrder
 }: {
   order: OrderDetail;
   customers: Customer[];
@@ -353,6 +354,7 @@ export function OrderDetailManager({
   canObsoleteDrawing: boolean;
   canPrintOrder: boolean;
   canCompleteProductionProduct: boolean;
+  canCreateOutsourceOrder: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -444,9 +446,11 @@ export function OrderDetailManager({
             <Link className={`${buttonPrimary} !text-white hover:!text-white`} href={productionProgressHref}>
               进入生产进度
             </Link>
-            <Link className="inline-flex items-center justify-center rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold hover:bg-[#eef2f6]" href="/outsourcing/new">
-              新建外发单
-            </Link>
+            {canCreateOutsourceOrder ? (
+              <Link className="inline-flex items-center justify-center rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold hover:bg-[#eef2f6]" href="/outsourcing/new">
+                新建外发单
+              </Link>
+            ) : null}
             <Link className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" href={abnormalListHref}>
               查看异常
             </Link>

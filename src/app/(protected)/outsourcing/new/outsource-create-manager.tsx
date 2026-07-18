@@ -67,6 +67,7 @@ type OutsourceCreateManagerProps = {
   orders: OrderOption[];
   supplierSuggestions: string[];
   handlerSuggestions: string[];
+  canCreateOutsourceOrder: boolean;
 };
 
 function todayInputValue() {
@@ -117,7 +118,12 @@ function renderDrawingPreview(drawing: DrawingPreview | null) {
   );
 }
 
-export function OutsourceCreateManager({ orders, supplierSuggestions, handlerSuggestions }: OutsourceCreateManagerProps) {
+export function OutsourceCreateManager({
+  orders,
+  supplierSuggestions,
+  handlerSuggestions,
+  canCreateOutsourceOrder
+}: OutsourceCreateManagerProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState<FormState>({
@@ -241,6 +247,12 @@ export function OutsourceCreateManager({ orders, supplierSuggestions, handlerSug
 
   async function submitForm(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!canCreateOutsourceOrder) {
+      setError("没有创建外发单的权限。");
+      return;
+    }
+
     setMessage("");
     setError("");
 
@@ -494,11 +506,13 @@ export function OutsourceCreateManager({ orders, supplierSuggestions, handlerSug
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-3">
-        <button className="rounded-md bg-[#172033] px-5 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
-          保存外发单
-        </button>
-      </div>
+      {canCreateOutsourceOrder ? (
+        <div className="flex flex-wrap gap-3">
+          <button className="rounded-md bg-[#172033] px-5 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
+            保存外发单
+          </button>
+        </div>
+      ) : null}
     </form>
   );
 }

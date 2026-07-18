@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { requirePagePermission } from "@/lib/auth/authorization";
 import { isOutsourceStatus } from "@/lib/outsource-status";
 import { isOutsourceType } from "@/lib/outsource";
+import { hasPermission } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { OutsourcingManager } from "./outsourcing-manager";
 
@@ -41,7 +42,14 @@ function earliestDate(dates: Date[]) {
 }
 
 export default async function OutsourcingPage({ searchParams }: OutsourcingPageProps) {
-  await requirePagePermission("outsource.view");
+  const user = await requirePagePermission("outsource.view");
+  const canCreateOutsourceOrder =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "outsource.view", []) &&
+    hasPermission(user.role, "outsource.create", []);
 
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
@@ -140,6 +148,7 @@ export default async function OutsourcingPage({ searchParams }: OutsourcingPageP
         endDate: parsedEndDate ? endDate : "",
         overdue
       }}
+      canCreateOutsourceOrder={canCreateOutsourceOrder}
     />
   );
 }

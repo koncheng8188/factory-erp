@@ -550,7 +550,7 @@ test("送货详情 GET 鉴权早于 404 判断并保留原 404", () => {
   assert.match(deliveryDetailGet, /送货单不存在。[\s\S]*?status: 404/);
 });
 test("外发列表 route 导入统一 API 权限助手", () => {
-  assert.match(source.outsourcing, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.outsourcing, /import \{ requireApiAllPermissions, requireApiPermission \} from "@\/lib\/auth\/authorization"/);
 });
 test("外发列表 GET 只要求 outsource.view", () => {
   assert.equal(occurrenceCount(outsourcingGet, 'requireApiPermission("outsource.view")'), 1);
@@ -560,14 +560,62 @@ test("外发列表 GET 鉴权早于 Prisma 和响应构造", () => {
   assertBefore(outsourcingGet, 'requireApiPermission("outsource.view")', "prisma.outsourceOrder.findMany");
   assertBefore(outsourcingGet, 'requireApiPermission("outsource.view")', "NextResponse.json({ outsourceOrders })");
 });
-test("外发列表 POST 保持 requireApiUser 认证", () => {
-  assert.match(outsourcingPost, /requireApiUser\(\)/);
-  assert.doesNotMatch(outsourcingPost, /requireApiPermission/);
+test("外发创建 POST 精确要求六项完整资源链权限", () => {
+  assertAllPermissions(outsourcingPost, [
+    "order.view",
+    "product.view",
+    "part.view",
+    "drawing.view",
+    "outsource.view",
+    "outsource.create"
+  ]);
 });
-test("外发列表 POST 保留编号、事务和数量联动", () => {
+test("外发创建 POST 不再使用登录助手或单权限助手", () => {
+  assert.doesNotMatch(source.outsourcing, /requireApiUser/);
+  assert.doesNotMatch(outsourcingPost, /requireApiPermission\(/);
+});
+test("外发创建 POST 权限失败立即返回", () => {
+  assert.match(outsourcingPost, /if \(!authResult\.ok\) return authResult\.response/);
+});
+test("外发创建 POST 鉴权早于请求体和事务", () => {
+  assertBefore(outsourcingPost, "requireApiAllPermissions", "request.json()");
+  assertBefore(outsourcingPost, "requireApiAllPermissions", "prisma.$transaction");
+});
+test("外发创建 POST 鉴权早于编号和资源查询", () => {
+  for (const marker of ["tx.outsourceOrder.findFirst", "tx.productPart.findMany", "tx.outsourceOrder.create"]) {
+    assertBefore(outsourcingPost, "requireApiAllPermissions", marker);
+  }
+});
+test("外发创建 POST 保持 WF 日期与三位流水规则", () => {
+  assert.match(outsourcingPost, /const prefix = `WF\$\{formatOutsourceDate\(outsourceDate\)\}`/);
+  assert.match(outsourcingPost, /latestOrder\.outsourceNo\.slice\(-3\)/);
+  assert.match(outsourcingPost, /String\(latestSerial \+ 1\)\.padStart\(3, "0"\)/);
+});
+test("外发创建 POST 保留原事务和数量联动", () => {
   assert.match(outsourcingPost, /prisma\.\$transaction/);
   assert.match(outsourcingPost, /const outsourceNo =/);
-  assert.match(outsourcingPost, /outsourcedQuantity/);
+  assert.match(outsourcingPost, /outsourcedQuantity: newOutsourcedQuantity/);
+  assert.match(outsourcingPost, /missingQuantity: newOutsourcedQuantity - part\.returnedQuantity/);
+  assert.match(outsourcingPost, /returnedQuantity: 0/);
+});
+test("外发创建 POST 保留图纸选择与快照优先级", () => {
+  assert.match(outsourcingPost, /const drawing = pickOutsourceDrawing\(part\.drawings\)/);
+  assert.match(outsourcingPost, /drawingId: drawing\?\.id \?\? null/);
+  assert.match(outsourcingPost, /thumbnailUrl: drawing\?\.thumbnailUrl \?\? drawing\?\.printThumbnailUrl \?\? null/);
+  assert.match(outsourcingPost, /originalUrl: drawing\?\.originalUrl \?\? null/);
+});
+test("外发创建 POST 保留 Part Product Order 状态联动", () => {
+  assert.match(outsourcingPost, /tx\.productPart\.updateMany/);
+  assert.match(outsourcingPost, /syncProductStatusFromParts\(tx, productId\)/);
+  assert.match(outsourcingPost, /tx\.order\.updateMany/);
+});
+test("外发创建 POST 保持成功和当前错误语义", () => {
+  assert.match(outsourcingPost, /NextResponse\.json\(\{ outsourceOrder \}\)/);
+  assert.match(outsourcingPost, /error instanceof ValidationError \? 400 : 500/);
+  assert.match(outsourcingPost, /errorMessage\(error, "创建外发单失败。"\)/);
+});
+test("外发创建 POST 未提前加入编号或锁重试", () => {
+  assert.doesNotMatch(outsourcingPost, /P2002|P1008|P2034|SQLITE_BUSY|database is locked|MAX_.*ATTEMPTS/i);
 });
 test("回厂列表 route 导入统一 API 权限助手", () => {
   assert.match(source.returns, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
@@ -861,10 +909,11 @@ test("客户写接口保持原字段白名单与成功响应", () => {
   assert.match(customerPut, /NextResponse\.json\(\{ customer \}\)/);
   assert.match(customerDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("C3e-1 写权限登记包含二十二个 protected 接口", () => {
+test("C3f-1 写权限登记包含二十三个 protected 接口", () => {
   assert.match(source.writeRegistry, /const protectedHandlers = new Map/);
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 22\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 10\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 23\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 9\)/);
+  assert.match(source.writeRegistry, /\["POST \/api\/outsourcing", \{ stage: "C3f-1", permissions:/);
 });
 
 test("订单写 route 导入全部权限助手且不再导入登录助手", () => {

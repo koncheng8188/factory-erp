@@ -105,6 +105,13 @@ export default async function ProductionPage({ searchParams }: ProductionPagePro
     hasPermission(user.role, "part.view", []) &&
     hasPermission(user.role, "production.view", []) &&
     hasPermission(user.role, "production.reportAbnormal", []);
+  const canCreateOutsourceOrder =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "drawing.view", []) &&
+    hasPermission(user.role, "outsource.view", []) &&
+    hasPermission(user.role, "outsource.create", []);
 
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
@@ -218,6 +225,7 @@ export default async function ProductionPage({ searchParams }: ProductionPagePro
       canPrintProduction={canPrintProduction}
       canUpdateProductionProgress={canUpdateProductionProgress}
       canReportProductionAbnormal={canReportProductionAbnormal}
+      canCreateOutsourceOrder={canCreateOutsourceOrder}
     />
   );
 }

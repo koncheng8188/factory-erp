@@ -9,8 +9,7 @@ import {
   parseDate,
   pickOutsourceDrawing
 } from "@/lib/outsource";
-import { requireApiPermission } from "@/lib/auth/authorization";
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiAllPermissions, requireApiPermission } from "@/lib/auth/authorization";
 
 function parseQuantity(value: unknown) {
   const quantity = Number(value);
@@ -47,7 +46,14 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "product.view",
+    "part.view",
+    "drawing.view",
+    "outsource.view",
+    "outsource.create"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const body = await request.json();

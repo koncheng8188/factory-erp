@@ -33,7 +33,15 @@ function typeLabel(type: string) {
   return outsourceTypeLabels[type as OutsourceTypeValue] ?? type;
 }
 
-export function OutsourcingManager({ outsourceOrders, filters }: { outsourceOrders: OutsourceOrderListItem[]; filters: OutsourceFilters }) {
+export function OutsourcingManager({
+  outsourceOrders,
+  filters,
+  canCreateOutsourceOrder
+}: {
+  outsourceOrders: OutsourceOrderListItem[];
+  filters: OutsourceFilters;
+  canCreateOutsourceOrder: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [filterForm, setFilterForm] = useState<OutsourceFilters>(filters);
@@ -72,13 +80,15 @@ export function OutsourcingManager({ outsourceOrders, filters }: { outsourceOrde
           <h1 className="text-2xl font-semibold">外发电镀单</h1>
           <p className="mt-2 text-sm text-[#667085]">按订单、产品和部件创建外发记录，跟踪部件已外发和未回数量。</p>
         </div>
-        <Link
-          href="/outsourcing/new"
-          className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
-          style={{ color: "#ffffff" }}
-        >
-          新建外发单
-        </Link>
+        {canCreateOutsourceOrder ? (
+          <Link
+            href="/outsourcing/new"
+            className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
+            style={{ color: "#ffffff" }}
+          >
+            新建外发单
+          </Link>
+        ) : null}
       </section>
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">

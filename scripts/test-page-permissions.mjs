@@ -25,6 +25,9 @@ const files = {
   orders: "src/app/(protected)/orders/page.tsx",
   orderListManager: "src/app/(protected)/orders/order-manager.tsx",
   outsourcing: "src/app/(protected)/outsourcing/page.tsx",
+  outsourcingManager: "src/app/(protected)/outsourcing/outsourcing-manager.tsx",
+  outsourceNew: "src/app/(protected)/outsourcing/new/page.tsx",
+  outsourceCreateManager: "src/app/(protected)/outsourcing/new/outsource-create-manager.tsx",
   delivery: "src/app/(protected)/delivery/page.tsx",
   orderDetail: "src/app/(protected)/orders/[id]/page.tsx",
   orderManager: "src/app/(protected)/orders/[id]/order-detail-manager.tsx",
@@ -394,7 +397,7 @@ test("delivery.create 不参与送货明细查询条件", () => {
 test("delivery.create 仅作为送货入口组合条件使用", () => assert.match(source.dashboard, /const canCreateDeliveryAction = canViewDeliverySummary && canCreateDelivery/));
 test("新建订单同时要求订单查看和创建权限", () => assert.match(source.dashboard, /const canCreateOrders = canViewOrders && hasPermission\(user\.role, "order\.create", \[\]\)/));
 test("生产进度入口复用生产查看权限", () => assert.match(source.dashboard, /\.\.\.\(canViewProduction \? \[\{ label: "生产进度", href: "\/production" \}\] : \[\]\)/));
-test("新建外发单同时要求外发查看和创建权限", () => assert.match(source.dashboard, /const canCreateOutsource = canViewOutsource && hasPermission\(user\.role, "outsource\.create", \[\]\)/));
+test("新建外发单使用完整六项资源链权限", () => assert.match(source.dashboard, /const canCreateOutsourceOrder =\s+hasPermission\(user\.role, "order\.view", \[\]\) &&\s+hasPermission\(user\.role, "product\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.view", \[\]\) &&\s+hasPermission\(user\.role, "drawing\.view", \[\]\) &&\s+hasPermission\(user\.role, "outsource\.view", \[\]\) &&\s+hasPermission\(user\.role, "outsource\.create", \[\]\)/));
 test("回厂登记同时要求回厂查看和创建权限", () => assert.match(source.dashboard, /const canCreateReturns = canViewReturns && hasPermission\(user\.role, "return\.create", \[\]\)/));
 test("新建送货单同时要求送货查看和创建权限", () => assert.match(source.dashboard, /const canCreateDeliveryAction = canViewDeliverySummary && canCreateDelivery/));
 test("系统备份要求 backup.view", () => assert.match(source.dashboard, /const canViewBackup = hasPermission\(user\.role, "backup\.view", \[\]\)/));
@@ -402,7 +405,7 @@ test("生产日报同时要求查看和打印权限", () => assert.match(source.
 test("生产异常清单同时要求查看和打印权限", () => assert.match(source.dashboard, /const canPrintProductionAbnormal = canViewProductionAbnormal\s+&& hasPermission\(user\.role, "production\.abnormal\.print", \[\]\)/));
 test("生产进度跟踪表同时要求查看和打印权限", () => assert.match(source.dashboard, /const canPrintProductionProgress = canViewProduction\s+&& hasPermission\(user\.role, "production\.print", \[\]\)/));
 test("常用操作数组按权限条件构造", () => {
-  for (const gate of ["canCreateOrders", "canViewProduction", "canCreateOutsource", "canCreateReturns", "canCreateDeliveryAction", "canViewBackup"]) assert.match(source.dashboard, new RegExp(`\\.\\.\\.\\(${gate} \\? \\[\\{ label:`));
+  for (const gate of ["canCreateOrders", "canViewProduction", "canCreateOutsourceOrder", "canCreateReturns", "canCreateDeliveryAction", "canViewBackup"]) assert.match(source.dashboard, new RegExp(`\\.\\.\\.\\(${gate} \\? \\[\\{ label:`));
 });
 test("常用打印数组按权限条件构造", () => {
   for (const gate of ["canPrintProductionDaily", "canPrintProductionAbnormal", "canPrintProductionProgress"]) assert.match(source.dashboard, new RegExp(`\\.\\.\\.\\(${gate} \\? \\[\\{ label:`));
@@ -977,7 +980,10 @@ test("外发列表保留原筛选、排序和列表 Manager", () => {
   assert.match(outsourcingPageBody, /orderBy: \{ createdAt: "desc" \}/);
   assert.match(outsourcingPageBody, /<OutsourcingManager/);
 });
-test("外发列表未提前接入创建权限", () => assert.doesNotMatch(outsourcingPageBody, /outsource\.create/));
+test("外发列表基础查看门禁未升级为完整创建门禁", () => {
+  assert.equal(occurrenceCount(outsourcingPageBody, 'requirePagePermission("outsource.view")'), 1);
+  assert.doesNotMatch(outsourcingPageBody, /requirePageAllPermissions/);
+});
 
 test("送货列表导入页面权限助手", () => assert.match(source.delivery, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
 test("送货列表只要求一次 delivery.view", () => assert.equal(occurrenceCount(deliveryPageBody, 'requirePagePermission("delivery.view")'), 1));
@@ -1016,7 +1022,7 @@ test("生产推进 Boolean 精确使用五项权限和空覆盖", () => {
   }
 });
 test("生产异常登记 Boolean 精确使用五项权限和空覆盖", () => {
-  const block = sourceSlice(source.production, "const canReportProductionAbnormal =", "\n\n  const params");
+  const block = sourceSlice(source.production, "const canReportProductionAbnormal =", "\n  const canCreateOutsourceOrder");
   for (const permission of ["order.view", "product.view", "part.view", "production.view", "production.reportAbnormal"]) {
     assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
   }
@@ -1075,7 +1081,7 @@ test("异常处理函数在 JSON 和 fetch 前防御权限", () => {
 });
 
 test("订单详情生产完成 Boolean 精确使用五项权限和空覆盖", () => {
-  const block = sourceSlice(source.orderDetail, "const canCompleteProductionProduct =", "\n\n  const { id }");
+  const block = sourceSlice(source.orderDetail, "const canCompleteProductionProduct =", "\n  const canCreateOutsourceOrder");
   for (const permission of ["order.view", "product.view", "part.view", "production.view", "production.completeProduct"]) {
     assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
   }
@@ -1367,6 +1373,98 @@ test("齐套和订单详情 Client 权限行为未被 C3e-2 改写", () => {
   assert.match(source.kittingManager, /if \(!canExecuteKitting\) return/);
   assert.match(source.orderManager, /if \(!canCompleteProductionProduct\) return/);
   assert.match(source.kittingManager, /fetch\(`\/api\/kitting\/\$\{product\.id\}`/);
+});
+
+const outsourceCreateBooleanPattern =
+  /const canCreateOutsourceOrder =\s+hasPermission\(user\.role, "order\.view", \[\]\) &&\s+hasPermission\(user\.role, "product\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.view", \[\]\) &&\s+hasPermission\(user\.role, "drawing\.view", \[\]\) &&\s+hasPermission\(user\.role, "outsource\.view", \[\]\) &&\s+hasPermission\(user\.role, "outsource\.create", \[\]\)/;
+
+test("外发列表继续只以 outsource.view 作为页面查看门禁", () => {
+  assert.equal(occurrenceCount(source.outsourcing, 'requirePagePermission("outsource.view")'), 1);
+  assertBefore(source.outsourcing, 'requirePagePermission("outsource.view")', "await searchParams");
+  assertBefore(source.outsourcing, 'requirePagePermission("outsource.view")', "prisma.outsourceOrder.findMany");
+});
+test("外发列表创建 Boolean 精确使用六项权限和空覆盖", () => {
+  assert.match(source.outsourcing, outsourceCreateBooleanPattern);
+});
+test("外发列表创建入口由 Boolean 进行 DOM 裁剪", () => {
+  assert.match(source.outsourcing, /canCreateOutsourceOrder=\{canCreateOutsourceOrder\}/);
+  assert.match(source.outsourcingManager, /\{canCreateOutsourceOrder \? \(\s+<Link[\s\S]*?href="\/outsourcing\/new"[\s\S]*?\) : null\}/);
+  assert.doesNotMatch(source.outsourcingManager, /disabled=\{!?canCreateOutsourceOrder\}|(?:hidden|invisible)[\s\S]{0,160}canCreateOutsourceOrder/);
+});
+test("外发列表查看详情和筛选不依赖创建权限", () => {
+  assert.match(source.outsourcingManager, /href=\{`\/outsourcing\/\$\{order\.id\}`\}/);
+  assert.match(source.outsourcingManager, /onSubmit=\{submitFilters\}/);
+  assert.doesNotMatch(source.outsourcing, /requirePageAllPermissions/);
+});
+test("外发新建页创建 Boolean 精确使用六项权限和空覆盖", () => {
+  assert.match(source.outsourceNew, outsourceCreateBooleanPattern);
+});
+test("外发新建页完整权限检查早于所有敏感 Prisma 查询", () => {
+  assertBefore(source.outsourceNew, 'requirePagePermission("outsource.view")', "const canCreateOutsourceOrder");
+  assertBefore(source.outsourceNew, "if (!canCreateOutsourceOrder)", "prisma.order.findMany");
+  assertBefore(source.outsourceNew, "if (!canCreateOutsourceOrder)", "prisma.outsourceOrder.findMany");
+});
+test("外发新建页无创建权限时不实例化表单 Client", () => {
+  assertBefore(source.outsourceNew, "if (!canCreateOutsourceOrder)", "<OutsourceCreateManager");
+  assert.match(source.outsourceNew, /没有创建外发单的权限。/);
+});
+test("外发新建页只向 Client 传创建 Boolean 而不传安全用户", () => {
+  const managerProps = sourceSlice(source.outsourceNew, "<OutsourceCreateManager", "/>");
+  assert.match(managerProps, /canCreateOutsourceOrder=\{canCreateOutsourceOrder\}/);
+  assert.doesNotMatch(managerProps, /\b(?:user|role|permissions?|overrides)=/i);
+});
+test("外发创建 Client 只声明最小创建权限 Boolean", () => {
+  assert.match(source.outsourceCreateManager, /canCreateOutsourceOrder: boolean/);
+  assert.doesNotMatch(source.outsourceCreateManager, /\b(?:user|role|permissions?|overrides)\s*:/i);
+});
+test("外发创建 Client 在状态更新、请求体和 fetch 前防御权限", () => {
+  const body = functionBody(source.outsourceCreateManager, "async function submitForm");
+  assertBefore(body, "if (!canCreateOutsourceOrder)", 'setMessage("")');
+  assertBefore(body, "if (!canCreateOutsourceOrder)", "JSON.stringify");
+  assertBefore(body, "if (!canCreateOutsourceOrder)", 'fetch("/api/outsourcing"');
+});
+test("外发创建 Client 提交入口由 Boolean 裁剪且 disabled 仅绑定处理中", () => {
+  assert.match(source.outsourceCreateManager, /\{canCreateOutsourceOrder \? \(\s+<div[\s\S]*?保存外发单[\s\S]*?\) : null\}/);
+  assert.match(source.outsourceCreateManager, /disabled=\{isPending\}/);
+  assert.doesNotMatch(source.outsourceCreateManager, /disabled=\{!?canCreateOutsourceOrder\}/);
+});
+test("首页创建 Boolean 精确使用六项权限并替换旧两项逻辑", () => {
+  assert.match(source.dashboard, outsourceCreateBooleanPattern);
+  assert.match(source.dashboard, /\.\.\.\(canCreateOutsourceOrder \? \[\{ label: "新建外发单", href: "\/outsourcing\/new" \}\] : \[\]\)/);
+  assert.doesNotMatch(source.dashboard, /const canCreateOutsource = canViewOutsource/);
+});
+test("首页外发创建权限不改变看板查询数量与基础门禁", () => {
+  assert.equal((source.dashboard.match(/prisma\./g) ?? []).length, 26);
+  assert.equal(occurrenceCount(source.dashboard, 'requirePagePermission("dashboard.view")'), 1);
+});
+test("生产页创建 Boolean 精确使用六项权限并传给 Client", () => {
+  assert.match(source.production, outsourceCreateBooleanPattern);
+  assert.match(source.production, /canCreateOutsourceOrder=\{canCreateOutsourceOrder\}/);
+});
+test("生产待外发入口按创建 Boolean 独立裁剪", () => {
+  assert.match(source.productionManager, /part\.status !== "WAIT_OUTSOURCE" \|\| canCreateOutsourceOrder/);
+  assert.match(source.productionManager, /\{canRenderLinkAction \? \(\s+<Link[\s\S]*?href=\{linkAction\.href\}/);
+  for (const marker of ["canUpdateProductionProgress", "canReportProductionAbnormal"]) assert.match(source.productionManager, new RegExp(marker));
+});
+test("订单详情创建 Boolean 精确使用六项权限并传给 Client", () => {
+  assert.match(source.orderDetail, outsourceCreateBooleanPattern);
+  assert.match(source.orderDetail, /canCreateOutsourceOrder=\{canCreateOutsourceOrder\}/);
+});
+test("订单详情外发入口按创建 Boolean 裁剪且原 Boolean 保持", () => {
+  assert.match(source.orderManager, /\{canCreateOutsourceOrder \? \(\s+<Link[\s\S]*?href="\/outsourcing\/new"[\s\S]*?\) : null\}/);
+  for (const marker of ["canUpdateOrder", "canCreateProduct", "canCreatePart", "canViewDrawings", "canCompleteProductionProduct"]) {
+    assert.match(source.orderDetail, new RegExp(marker));
+  }
+});
+test("四个直达外发创建入口全部使用统一 Boolean", () => {
+  for (const content of [source.outsourcingManager, source.dashboard, source.productionManager, source.orderManager]) {
+    assert.match(content, /canCreateOutsourceOrder/);
+  }
+});
+test("C3f-1 页面改动未引入跨模块权限或 C3f-2 业务逻辑", () => {
+  for (const content of [source.outsourcing, source.outsourcingManager, source.outsourceNew, source.outsourceCreateManager]) {
+    assert.doesNotMatch(content, /outsource\.update|return\.create|P2002|P1008|P2034|SQLITE_BUSY|database is locked/i);
+  }
 });
 test("静态测试仅执行只读文件检查", async () => {
   const self = await readFile(fileURLToPath(import.meta.url), "utf8");
