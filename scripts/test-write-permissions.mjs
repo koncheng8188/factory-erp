@@ -111,6 +111,10 @@ function compact(value) {
   return value.replace(/\s+/g, " ");
 }
 
+function withoutComments(value) {
+  return value.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 function assertBefore(handler, first, second, endpoint) {
   const firstIndex = handler.indexOf(first);
   const secondIndex = handler.indexOf(second);
@@ -457,19 +461,26 @@ test("回厂 POST 注册精确六项资源权限且不包含 drawing.view", () =
   ]);
 });
 
-test("回厂 POST 鉴权早于请求体、日期、资源查询和事务", () => {
+test("回厂 POST 鉴权、JSON 和服务委托保持职责边界", async () => {
   const endpoint = "POST /api/returns";
-  const handler = functionBody(businessHandlers.get(endpoint).source, "POST");
+  const route = withoutComments(businessHandlers.get(endpoint).source);
+  const handler = functionBody(route, "POST");
   for (const marker of [
     "request.json()",
-    "parseDate(body.returnDate)",
-    "prisma.$transaction",
-    "tx.outsourceOrder.findUnique",
-    "tx.productPart.findUnique",
-    "tx.order.findUnique"
+    "createOutsourceReturnIntegrity"
   ]) {
     assertBefore(handler, "requireApiAllPermissions", marker, endpoint);
   }
+  assert.match(handler, /body = await request\.json\(\)/);
+  assert.match(handler, /createOutsourceReturnIntegrity\(\{ client: prisma, input: body \}\)/);
+  assert.doesNotMatch(handler, /parseDate\(|parseReturnDate\(|new Date\(body\.returnDate\)|body\.returnDate\s*=/);
+  assert.doesNotMatch(handler, /errorMessage\(error/);
+  assert.match(handler, /error instanceof ReturnsIntegrityError[\s\S]*?error: error\.message/);
+  const integrity = withoutComments(await readFile(path.join(root, "src", "lib", "returns-integrity.ts"), "utf8"));
+  assert.match(integrity, /function parseReturnDate\(value: unknown\)/);
+  assert.match(integrity, /\^\(\\d\{4\}\)-\(\\d\{2\}\)-\(\\d\{2\}\)\$/);
+  assert.match(integrity, /date\.getFullYear\(\) !== Number\(yearText\)[\s\S]*?date\.getDate\(\) !== Number\(dayText\)/);
+  assert.doesNotMatch(integrity, /new Date\(\)\.toISOString\(\)\.slice\(0, 10\)|return new Date\(\)/);
 });
 
 test("回厂 POST 权限失败立即返回且不回退登录助手", () => {

@@ -56,6 +56,12 @@ function occurrenceCount(value, target) {
   return value.split(target).length - 1;
 }
 
+function executableSource(value) {
+  return value
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
 function assertAllPermissions(handler, permissions) {
   const pattern = permissions
     .map((permission) => `"${permission.replaceAll(".", "\\.")}"`)
@@ -116,6 +122,7 @@ const source = {
   drawingMainIntegrity: await readSource("src", "lib", "drawing-main-integrity.ts"),
   productionKittingIntegrity: await readSource("src", "lib", "production-kitting-integrity.ts"),
   outsourcingIntegrity: await readSource("src", "lib", "outsourcing-integrity.ts"),
+  returnsIntegrity: await readSource("src", "lib", "returns-integrity.ts"),
   productProgress: await readSource("src", "lib", "product-progress.ts"),
   kittingLib: await readSource("src", "lib", "kitting.ts"),
   drawingFiles: await readSource("src", "lib", "drawing-files.ts"),
@@ -140,6 +147,7 @@ const outsourcingGet = functionBody(source.outsourcing, "GET");
 const outsourcingPost = functionBody(source.outsourcing, "POST");
 const returnsGet = functionBody(source.returns, "GET");
 const returnsPost = functionBody(source.returns, "POST");
+const executableReturnsPost = executableSource(returnsPost);
 const kittingGet = functionBody(source.kitting, "GET");
 const kittingPost = functionBody(source.kitting, "POST");
 const partAdvancePost = functionBody(source.partAdvance, "POST");
@@ -648,61 +656,53 @@ test("回厂 POST 权限检查是第一项业务操作并立即返回", () => {
   assert.match(returnsPost, /^\s*\{\s*const authResult = await requireApiAllPermissions/);
   assert.match(returnsPost, /if \(!authResult\.ok\) return authResult\.response/);
 });
-test("回厂 POST 鉴权早于 JSON、日期、明细和事务", () => {
-  for (const marker of ["request.json()", "parseDate(body.returnDate)", "const rawItems", "prisma.$transaction"]) {
-    assertBefore(returnsPost, "requireApiAllPermissions", marker);
+test("回厂 POST 鉴权早于 JSON 和完整性服务", () => {
+  for (const marker of ["request.json()", "createOutsourceReturnIntegrity"]) {
+    assertBefore(executableReturnsPost, "requireApiAllPermissions", marker);
   }
 });
-test("回厂 POST 鉴权早于外发、部件、产品和订单资源访问", () => {
-  for (const marker of [
-    "tx.outsourceOrder.findUnique",
-    "tx.productPart.findUnique",
-    "tx.product.updateMany",
-    "tx.order.findUnique"
-  ]) {
-    assertBefore(returnsPost, "requireApiAllPermissions", marker);
-  }
+test("回厂 POST 不在 Route 执行业务资源写入", () => {
+  assert.doesNotMatch(returnsPost, /await prisma\.\$transaction|await tx\.|prisma\.outsourceOrderItem/);
 });
 test("回厂 POST 不再回退登录助手或单权限助手", () => {
   assert.doesNotMatch(returnsPost, /requireApiUser|requireApiPermission/);
 });
-test("回厂列表 POST 保留事务与数量状态联动", () => {
-  assert.match(returnsPost, /prisma\.\$transaction/);
-  assert.match(returnsPost, /returnedQuantity/);
-  assert.match(returnsPost, /missingQuantity/);
+test("回厂 POST 委托独立完整性服务", () => {
+  assert.match(executableReturnsPost, /createOutsourceReturnIntegrity\(\{ client: prisma, input: body \}\)/);
 });
-test("回厂 POST 保持原请求字段与宽松日期解析", () => {
-  for (const field of ["outsourceOrderId", "returnDate", "items", "handler", "remark"]) {
-    assert.match(returnsPost, new RegExp(`body\\.${field}`));
-  }
-  assert.match(returnsPost, /const returnDate = parseDate\(body\.returnDate\)/);
+test("回厂 POST 对无效 JSON 返回稳定400", () => {
+  assert.match(returnsPost, /请求格式错误。/);
 });
-test("回厂 POST 保持重复明细和分批回厂规则", () => {
-  assert.match(returnsPost, /duplicateIds\.has\(item\.outsourceOrderItemId\)/);
-  assert.match(returnsPost, /同一外发明细不能重复提交。/);
-  assert.match(returnsPost, /item\.returnQuantity > orderItem\.missingQuantity/);
+test("回厂服务严格校验日期、重复明细和物理数量", () => {
+  assert.match(source.returnsIntegrity, /回厂日期格式错误。/);
+  assert.match(source.returnsIntegrity, /同一外发明细不能重复添加。/);
+  assert.match(source.returnsIntegrity, /const physical = inputItem\.returnQuantity \+ inputItem\.abnormalQuantity/);
 });
-test("回厂 POST 保持外发明细绝对数量计算", () => {
-  assert.match(returnsPost, /nextReturnedQuantity = orderItem\.returnedQuantity \+ item\.returnQuantity/);
-  assert.match(returnsPost, /nextMissingQuantity = orderItem\.outsourceQuantity - nextReturnedQuantity/);
-  assert.match(returnsPost, /tx\.outsourceOrderItem\.update/);
+test("回厂服务用条件增减更新外发明细和部件", () => {
+  assert.match(source.returnsIntegrity, /outsourceOrderItem\.updateMany/);
+  assert.match(source.returnsIntegrity, /returnedQuantity: \{ increment: physical \}/);
+  assert.match(source.returnsIntegrity, /missingQuantity: \{ decrement: physical \}/);
 });
-test("回厂 POST 保持 Part Product Order 与外发单状态联动", () => {
-  for (const marker of [
-    "tx.productPart.update",
-    "syncProductStatusFromParts",
-    "tx.order.update",
-    "tx.outsourceOrder.update"
-  ]) {
-    assert.match(returnsPost, new RegExp(marker.replaceAll(".", "\\.")));
-  }
+
+test("回厂物理数量合计受 Prisma Int 上限保护", () => {
+  assert.match(source.returnsIntegrity, /const physicalReturnedQuantity = returnQuantity \+ abnormalQuantity/);
+  assert.match(source.returnsIntegrity, /physicalReturnedQuantity > PRISMA_INT_MAX/);
 });
-test("回厂 POST 保持成功响应和当前错误回显语义", () => {
-  assert.match(returnsPost, /NextResponse\.json\(\{ outsourceReturn: result \}\)/);
-  assert.match(returnsPost, /errorMessage\(error, "保存回厂记录失败。"\)/);
+
+test("回厂 Item 条件更新包含外发单归属快照", () => {
+  const block = sourceSlice(source.returnsIntegrity, "tx.outsourceOrderItem.updateMany", "data:");
+  assert.match(block, /outsourceOrderId: input\.outsourceOrderId/);
 });
-test("回厂 POST 未提前实现 C3g-2 稳定错误或锁重试", () => {
+test("回厂服务维护 Part Product Order 和外发单状态", () => {
+  for (const marker of ["productPart.updateMany", "updateProduct", "updateOrder", "outsourceOrder.updateMany"]) assert.match(source.returnsIntegrity, new RegExp(escapeRegExp(marker)));
+});
+test("回厂 POST 保持成功响应且不回显底层错误", () => {
+  assert.match(returnsPost, /NextResponse\.json\(\{ outsourceReturn \}\)/);
+  assert.doesNotMatch(returnsPost, /errorMessage\(error, "保存回厂/);
+});
+test("回厂稳定错误和重试仅位于完整性服务", () => {
   assert.doesNotMatch(returnsPost, /P2002|P2003|P2025|P1008|P2034|SQLITE_BUSY|database is locked|MAX_.*ATTEMPTS/i);
+  assert.match(source.returnsIntegrity, /MAX_RETURN_CREATE_ATTEMPTS/);
 });
 test("四个新增 GET 均无角色、Cookie 或 Session 直读", () => {
   for (const handler of [deliveryGet, deliveryDetailGet, outsourcingGet, returnsGet]) {
@@ -2058,4 +2058,44 @@ test("Route没有修改GET查询和成功响应结构", () => {
 test("API 静态测试仍不连接数据库、不启动服务或写文件", () => {
   const blocked = ["@prisma" + "/client", "write" + "File", "append" + "File", "fetch" + "(", "spawn" + "("];
   for (const marker of blocked) assert.equal(source.self.includes(marker), false, `测试脚本不得包含 ${marker}`);
+});
+
+test("回厂 POST 使用既有完整六项权限且权限早于 JSON", () => {
+  assertAllPermissions(returnsPost, ["order.view", "product.view", "part.view", "outsource.view", "return.view", "return.create"]);
+  assertBefore(returnsPost, "requireApiAllPermissions", "request.json()");
+});
+
+test("回厂 GET 保持仅 return.view 且不读取请求体", () => {
+  assert.match(returnsGet, /requireApiPermission\("return\.view"\)/);
+  assert.doesNotMatch(returnsGet, /request\.json\(\)/);
+});
+
+test("回厂路由将 JSON 和业务稳定错误分开处理", () => {
+  assert.match(returnsPost, /请求格式错误。/);
+  assert.match(returnsPost, /ReturnsIntegrityError/);
+  assert.doesNotMatch(returnsPost, /errorMessage\(error, "保存回厂/);
+});
+
+test("回厂完整性服务限定三次事务重试和安全的 SQLite 特征", () => {
+  assert.match(source.returnsIntegrity, /MAX_RETURN_CREATE_ATTEMPTS = 3/);
+  assert.match(source.returnsIntegrity, /attempt <= MAX_RETURN_CREATE_ATTEMPTS/);
+  assert.match(source.returnsIntegrity, /Socket timeout \\\(the database failed to respond/);
+  assert.match(source.returnsIntegrity, /SQLITE_BUSY\\b\|database is locked/);
+});
+
+test("回厂完整性服务使用条件 updateMany 及 count 冲突保护", () => {
+  assert.match(source.returnsIntegrity, /outsourceOrderItem\.updateMany/);
+  assert.match(source.returnsIntegrity, /productPart\.updateMany/);
+  assert.match(source.returnsIntegrity, /outsourceOrder\.updateMany/);
+  assert.match(source.returnsIntegrity, /count !== 1/);
+});
+
+test("回厂数量以正常和异常物理数量合计，异常历史保持粘性", () => {
+  assert.match(source.returnsIntegrity, /const physical = inputItem\.returnQuantity \+ inputItem\.abnormalQuantity/);
+  assert.match(source.returnsIntegrity, /abnormalItems\.has/);
+  assert.match(source.returnsIntegrity, /abnormalParts\.has/);
+});
+
+test("回厂服务不依赖正式 Prisma 单例或环境和文件系统", () => {
+  for (const marker of ["@/" + "lib/prisma", "process.env", "node:" + "fs", "read" + "File", "write" + "File"]) assert.equal(source.returnsIntegrity.includes(marker), false);
 });

@@ -1505,11 +1505,15 @@ test("回厂创建 Client 在状态更新、请求体和 fetch 前检查权限",
   const body = functionBody(source.returnCreateManager, "async function submitForm");
   assertBefore(body, "if (!canCreateOutsourceReturn) return", 'setMessage("")');
   assertBefore(body, "if (!canCreateOutsourceReturn) return", "JSON.stringify");
-  assertBefore(body, "if (!canCreateOutsourceReturn) return", 'fetch("/api/returns"');
+  assertBefore(body, "if (!canCreateOutsourceReturn) return", 'fetch("/api/returns",');
 });
-test("回厂创建 Client 提交按钮由 Boolean 裁剪且 disabled 只绑定处理中", () => {
+test("回厂创建 Client 提交按钮由 Boolean 裁剪并使用真实防重复提交状态", () => {
   assert.match(source.returnCreateManager, /\{canCreateOutsourceReturn \? \(\s+<button[\s\S]*?保存回厂记录[\s\S]*?\) : null\}/);
-  assert.match(source.returnCreateManager, /disabled=\{isPending\}/);
+  assert.match(source.returnCreateManager, /disabled=\{isSubmitting \|\| isPending\}/);
+  const body = functionBody(source.returnCreateManager, "async function submitForm");
+  assertBefore(body, "if (isSubmitting || submittingRef.current) return", "setIsSubmitting(true)");
+  assertBefore(body, "setIsSubmitting(true)", 'fetch("/api/returns",');
+  assert.match(body, /finally \{[\s\S]*?setIsSubmitting\(false\)/);
   assert.doesNotMatch(source.returnCreateManager, /disabled=\{!?canCreateOutsourceReturn\}/);
 });
 test("外发详情回厂入口使用统一 Boolean 裁剪", () => {

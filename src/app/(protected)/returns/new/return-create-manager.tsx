@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { formatDisplayDate, outsourceTypeLabels, type OutsourceTypeValue } from "@/lib/outsource";
 import { todayInputValue } from "@/lib/returns";
 
@@ -107,6 +107,8 @@ export function ReturnCreateManager({
   );
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   function updateForm(field: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -135,19 +137,17 @@ export function ReturnCreateManager({
       if (!Number.isInteger(abnormalQuantity) || abnormalQuantity < 0) {
         return `部件「${orderItem.partName}」异常数量必须是大于等于 0 的整数。`;
       }
-      if (orderItem.missingQuantity <= 0 && returnQuantity > 0) {
+      const physicalQuantity = returnQuantity + abnormalQuantity;
+      if (orderItem.missingQuantity <= 0 && physicalQuantity > 0) {
         return `部件「${orderItem.partName}」已经全部回齐，不能继续登记。`;
       }
-      if (returnQuantity > orderItem.missingQuantity) {
+      if (physicalQuantity > orderItem.missingQuantity) {
         return `部件「${orderItem.partName}」本次回来数量不能大于未回数量 ${orderItem.missingQuantity}。`;
-      }
-      if (abnormalQuantity > returnQuantity) {
-        return `部件「${orderItem.partName}」异常数量不能大于本次回来数量。`;
       }
       if (abnormalQuantity > 0 && !input.abnormalReason.trim()) {
         return `部件「${orderItem.partName}」有异常数量时必须填写异常原因。`;
       }
-      if (returnQuantity > 0) {
+      if (physicalQuantity > 0) {
         hasReturn = true;
       }
     }
@@ -158,6 +158,7 @@ export function ReturnCreateManager({
   async function submitForm(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canCreateOutsourceReturn) return;
+    if (isSubmitting || submittingRef.current) return;
 
     setMessage("");
     setError("");
@@ -168,30 +169,35 @@ export function ReturnCreateManager({
       return;
     }
 
-    const response = await fetch("/api/returns", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        outsourceOrderId: outsourceOrder.id,
-        ...form,
-        items: outsourceOrder.items.map((item) => ({
-          outsourceOrderItemId: item.id,
-          returnQuantity: parseInputQuantity(items[item.id]?.returnQuantity ?? ""),
-          abnormalQuantity: parseInputQuantity(items[item.id]?.abnormalQuantity ?? ""),
-          abnormalReason: items[item.id]?.abnormalReason ?? "",
-          remark: items[item.id]?.remark ?? ""
-        }))
-      })
-    });
-    const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查日志。" }));
-
-    if (!response.ok) {
-      setError(data.error ?? "保存回厂记录失败。");
-      return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/returns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          outsourceOrderId: outsourceOrder.id,
+          ...form,
+          items: outsourceOrder.items.map((item) => ({
+            outsourceOrderItemId: item.id,
+            returnQuantity: parseInputQuantity(items[item.id]?.returnQuantity ?? ""),
+            abnormalQuantity: parseInputQuantity(items[item.id]?.abnormalQuantity ?? ""),
+            abnormalReason: items[item.id]?.abnormalReason ?? "",
+            remark: items[item.id]?.remark ?? ""
+          })).filter((item) => item.returnQuantity + item.abnormalQuantity > 0)
+        })
+      });
+      const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查日志。" }));
+      if (!response.ok) {
+        setError(data.error ?? "保存回厂记录失败。");
+        return;
+      }
+      setMessage("回厂记录已保存。");
+      startTransition(() => router.push(`/outsourcing/${outsourceOrder.id}`));
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
-
-    setMessage("回厂记录已保存。");
-    startTransition(() => router.push(`/outsourcing/${outsourceOrder.id}`));
   }
 
   return (
@@ -202,7 +208,7 @@ export function ReturnCreateManager({
           <p className="mt-2 text-sm text-[#667085]">按外发明细登记本次实际回厂数量，支持同一外发单分批回厂。</p>
         </div>
         {canCreateOutsourceReturn ? (
-          <button className="rounded-md bg-[#172033] px-5 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
+          <button className="rounded-md bg-[#172033] px-5 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isSubmitting || isPending}>
             保存回厂记录
           </button>
         ) : null}
