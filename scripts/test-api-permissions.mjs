@@ -142,6 +142,7 @@ const partsGet = functionBody(source.partsDrawings, "GET");
 const partsPost = functionBody(source.partsDrawings, "POST");
 const deliveryGet = functionBody(source.delivery, "GET");
 const deliveryPost = functionBody(source.delivery, "POST");
+const executableDeliveryPost = executableSource(deliveryPost);
 const deliveryDetailGet = functionBody(source.deliveryDetail, "GET");
 const outsourcingGet = functionBody(source.outsourcing, "GET");
 const outsourcingPost = functionBody(source.outsourcing, "POST");
@@ -521,7 +522,8 @@ test("图纸 C3d-3a 不提前处理其他 Prisma 冲突或锁重试", () => {
 });
 
 test("送货列表 route 导入统一 API 权限助手", () => {
-  assert.match(source.delivery, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.delivery, /import \{ requireApiAllPermissions, requireApiPermission \} from "@\/lib\/auth\/authorization"/);
+  assert.doesNotMatch(source.delivery, /requireApiUser/);
 });
 test("送货列表 GET 只要求 delivery.view", () => {
   assert.equal(occurrenceCount(deliveryGet, 'requireApiPermission("delivery.view")'), 1);
@@ -534,14 +536,38 @@ test("送货列表 GET 鉴权早于 Prisma 和响应构造", () => {
 test("送货列表 GET 权限失败立即返回原响应", () => {
   assert.match(deliveryGet, /if \(!authResult\.ok\) return authResult\.response/);
 });
-test("送货列表 POST 保持 requireApiUser 认证", () => {
-  assert.match(deliveryPost, /requireApiUser\(\)/);
-  assert.doesNotMatch(deliveryPost, /requireApiPermission/);
+test("送货列表 POST 精确要求完整四项资源链权限", () => {
+  assertAllPermissions(executableDeliveryPost, ["order.view", "product.view", "delivery.view", "delivery.create"]);
+  assert.equal(occurrenceCount(executableDeliveryPost, "requireApiAllPermissions"), 1);
+  for (const permission of ["customer.view", "drawing.view", "delivery.print", "order.edit", "product.edit"]) {
+    assert.doesNotMatch(executableDeliveryPost, new RegExp(permission.replaceAll(".", "\\.")));
+  }
 });
-test("送货列表 POST 保留事务和数量联动", () => {
-  assert.match(deliveryPost, /prisma\.\$transaction/);
-  assert.match(deliveryPost, /missingDeliveryQuantity/);
-  assert.match(deliveryPost, /tx\.product\.update/);
+test("送货列表 POST 鉴权早于 JSON、解析、Prisma 和事务", () => {
+  for (const marker of ["request.json()", "parseDate(", "parseQuantity(", "new Map", "prisma.$transaction"]) {
+    assertBefore(executableDeliveryPost, "requireApiAllPermissions", marker);
+  }
+  assert.match(executableDeliveryPost, /if \(!authResult\.ok\) return authResult\.response/);
+});
+test("送货列表 POST 保留原业务事务、编号、状态和错误语义", () => {
+  for (const marker of [
+    "prisma.$transaction",
+    "missingDeliveryQuantity",
+    "tx.deliveryOrder.findFirst",
+    "tx.deliveryOrder.create",
+    "tx.deliveryOrderItem.create",
+    "tx.product.update",
+    "tx.order.update",
+    "tx.deliveryOrder.update",
+    'error instanceof BusinessError',
+    'errorMessage(error, "创建送货单失败。")'
+  ]) assert.match(executableDeliveryPost, new RegExp(escapeRegExp(marker)));
+  assert.doesNotMatch(executableDeliveryPost, /createDelivery(?:Integrity|Service)|P2002|P2003|P2025|P1008|P2034|SQLITE_BUSY|database is locked/i);
+});
+test("送货列表 GET 查询和响应结构保持原样", () => {
+  assert.match(deliveryGet, /prisma\.deliveryOrder\.findMany/);
+  assert.match(deliveryGet, /orderBy: \{ createdAt: "desc" \}/);
+  assert.match(deliveryGet, /NextResponse\.json\(\{ deliveryOrders \}\)/);
 });
 test("送货详情 route 导入统一 API 权限助手", () => {
   assert.match(source.deliveryDetail, /import \{ requireApiPermission \} from "@\/lib\/auth\/authorization"/);
@@ -976,12 +1002,13 @@ test("客户写接口保持原字段白名单与成功响应", () => {
   assert.match(customerPut, /NextResponse\.json\(\{ customer \}\)/);
   assert.match(customerDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("C3g-1 写权限登记包含二十四个 protected 接口", () => {
+test("C3h-1 写权限登记包含二十五个 protected 接口", () => {
   assert.match(source.writeRegistry, /const protectedHandlers = new Map/);
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 24\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 8\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 25\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 7\)/);
   assert.match(source.writeRegistry, /\["POST \/api\/outsourcing", \{ stage: "C3f-1", permissions:/);
   assert.match(source.writeRegistry, /\["POST \/api\/returns", \{ stage: "C3g-1", permissions:/);
+  assert.match(source.writeRegistry, /\["POST \/api\/delivery", \{ stage: "C3h-1", permissions:/);
 });
 
 test("订单写 route 导入全部权限助手且不再导入登录助手", () => {
@@ -2041,9 +2068,9 @@ test("Route响应不包含cause或Prisma错误字段", () => {
 test("C3f-1页面创建权限测试继续保留", () => {
   assert.match(source.pagePermissionTests, /四个直达外发创建入口全部使用统一 Boolean/);
 });
-test("写权限注册表更新为protected24和pending8", () => {
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 24\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 8\)/);
+test("写权限注册表更新为protected25和pending7", () => {
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 25\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 7\)/);
 });
 test("外发完整性服务不使用环境测试开关或文件系统", () => {
   for (const marker of ["process.env", "node:" + "fs", "read" + "File", "write" + "File", "absolute path"]) {

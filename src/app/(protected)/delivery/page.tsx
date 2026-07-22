@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { requirePagePermission } from "@/lib/auth/authorization";
+import { hasPermission } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { formatDisplayDate } from "@/lib/delivery";
 import { deliveryStatusOptions, getDeliveryStatusLabel, isDeliveryStatus } from "@/lib/delivery-status";
@@ -31,7 +32,12 @@ function nextDate(date: Date) {
 }
 
 export default async function DeliveryPage({ searchParams }: DeliveryPageProps) {
-  await requirePagePermission("delivery.view");
+  const user = await requirePagePermission("delivery.view");
+  const canCreateDelivery =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "delivery.view", []) &&
+    hasPermission(user.role, "delivery.create", []);
 
   const params = await searchParams;
   const keyword = firstQueryValue(params?.keyword).trim();
@@ -100,13 +106,15 @@ export default async function DeliveryPage({ searchParams }: DeliveryPageProps) 
           <h1 className="text-2xl font-semibold">送货管理</h1>
           <p className="mt-2 text-sm text-[#667085]">查看送货单记录，支持按订单分批创建送货单。</p>
         </div>
-        <Link
-          href="/delivery/new"
-          className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
-          style={{ color: "#ffffff" }}
-        >
-          新建送货单
-        </Link>
+        {canCreateDelivery ? (
+          <Link
+            href="/delivery/new"
+            className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
+            style={{ color: "#ffffff" }}
+          >
+            新建送货单
+          </Link>
+        ) : null}
       </section>
 
       <section className="rounded-md border border-[#d8dde6] bg-white p-5">

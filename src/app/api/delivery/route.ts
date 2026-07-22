@@ -8,8 +8,7 @@ import {
   normalizeOptional,
   parseDate
 } from "@/lib/delivery";
-import { requireApiPermission } from "@/lib/auth/authorization";
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiAllPermissions, requireApiPermission } from "@/lib/auth/authorization";
 
 type RawDeliveryItem = {
   productId?: unknown;
@@ -63,7 +62,12 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "product.view",
+    "delivery.view",
+    "delivery.create"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const body = await request.json();

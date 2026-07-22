@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requirePageAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
 import { canDeliverProduct, deliveredQuantityFromItems, missingDeliveryQuantity } from "@/lib/delivery";
 import { DeliveryCreateManager } from "./delivery-create-manager";
@@ -27,6 +28,12 @@ function buildSuggestions(values: Array<string | null | undefined>) {
 }
 
 export default async function NewDeliveryPage({ searchParams }: NewDeliveryPageProps) {
+  await requirePageAllPermissions([
+    "order.view",
+    "product.view",
+    "delivery.view",
+    "delivery.create"
+  ]);
   const { orderId } = await searchParams;
   const [orders, deliveryOrders] = await Promise.all([
     prisma.order.findMany({

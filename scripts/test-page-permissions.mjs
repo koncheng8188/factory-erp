@@ -31,6 +31,7 @@ const files = {
   returnNew: "src/app/(protected)/returns/new/page.tsx",
   returnCreateManager: "src/app/(protected)/returns/new/return-create-manager.tsx",
   delivery: "src/app/(protected)/delivery/page.tsx",
+  deliveryNew: "src/app/(protected)/delivery/new/page.tsx",
   orderDetail: "src/app/(protected)/orders/[id]/page.tsx",
   orderManager: "src/app/(protected)/orders/[id]/order-detail-manager.tsx",
   drawingUploadCenter: "src/app/(protected)/orders/[id]/drawings/upload-center/page.tsx",
@@ -859,6 +860,7 @@ const customerPageBody = functionBody(source.customers, "export default async fu
 const ordersPageBody = functionBody(source.orders, "export default async function OrdersPage");
 const outsourcingPageBody = functionBody(source.outsourcing, "export default async function OutsourcingPage");
 const deliveryPageBody = functionBody(source.delivery, "export default async function DeliveryPage");
+const deliveryNewPageBody = functionBody(source.deliveryNew, "export default async function NewDeliveryPage");
 const kittingPageBody = functionBody(source.kitting, "export default async function KittingPage");
 const excelImportPageBody = functionBody(source.excelImport, "export default async function ExcelImportPage");
 const backupPageBody = functionBody(source.backupPage, "export default async function BackupPage");
@@ -990,7 +992,13 @@ test("外发列表基础查看门禁未升级为完整创建门禁", () => {
   assert.doesNotMatch(outsourcingPageBody, /requirePageAllPermissions/);
 });
 
-test("送货列表导入页面权限助手", () => assert.match(source.delivery, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
+const deliveryCreateBooleanPattern =
+  /const canCreateDelivery =\s+hasPermission\(user\.role, "order\.view", \[\]\) &&\s+hasPermission\(user\.role, "product\.view", \[\]\) &&\s+hasPermission\(user\.role, "delivery\.view", \[\]\) &&\s+hasPermission\(user\.role, "delivery\.create", \[\]\)/;
+
+test("送货列表导入页面权限与纯权限判断助手", () => {
+  assert.match(source.delivery, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.delivery, /import \{ hasPermission \} from "@\/lib\/permissions"/);
+});
 test("送货列表只要求一次 delivery.view", () => assert.equal(occurrenceCount(deliveryPageBody, 'requirePagePermission("delivery.view")'), 1));
 test("送货列表鉴权早于参数和 Prisma 查询", () => {
   assertBefore(deliveryPageBody, 'requirePagePermission("delivery.view")', "await searchParams");
@@ -1002,7 +1010,30 @@ test("送货列表保留筛选、排序和详情链接", () => {
   assert.match(deliveryPageBody, /orderBy: \{ createdAt: "desc" \}/);
   assert.match(deliveryPageBody, /href=\{`\/delivery\/\$\{deliveryOrder\.id\}`\}/);
 });
-test("送货列表未提前接入创建或写权限", () => assert.doesNotMatch(deliveryPageBody, /delivery\.(?:create|update|delete)/));
+test("送货列表创建 Boolean 精确使用四项权限和空覆盖", () => {
+  assert.match(deliveryPageBody, deliveryCreateBooleanPattern);
+  assert.doesNotMatch(deliveryPageBody, /customer\.view|drawing\.view|delivery\.print|order\.edit|product\.edit/);
+});
+test("送货列表新建入口由最小 Boolean 进行 DOM 裁剪", () => {
+  assert.match(deliveryPageBody, /\{canCreateDelivery \? \(\s+<Link[\s\S]*?href="\/delivery\/new"[\s\S]*?新建送货单[\s\S]*?\) : null\}/);
+  assert.doesNotMatch(deliveryPageBody, /disabled=\{!?canCreateDelivery\}|(?:hidden|invisible)[\s\S]{0,160}canCreateDelivery/);
+  assert.doesNotMatch(deliveryPageBody, /\b(?:role|permissions?|overrides)=/i);
+});
+test("送货新建页精确使用完整四项页面权限", () => {
+  assert.match(source.deliveryNew, /import \{ requirePageAllPermissions \} from "@\/lib\/auth\/authorization"/);
+  assert.match(deliveryNewPageBody, /requirePageAllPermissions\(\[\s*"order\.view",\s*"product\.view",\s*"delivery\.view",\s*"delivery\.create"\s*\]\)/);
+  assert.equal(occurrenceCount(deliveryNewPageBody, "requirePageAllPermissions"), 1);
+});
+test("送货新建页鉴权早于参数、全部查询和业务数据构造", () => {
+  for (const marker of ["await searchParams", "prisma.order.findMany", "prisma.deliveryOrder.findMany", "buildSuggestions(", "<DeliveryCreateManager"]) {
+    assertBefore(deliveryNewPageBody, "requirePageAllPermissions", marker);
+  }
+});
+test("送货新建页不向 Client 传角色或完整权限集合", () => {
+  const managerProps = sourceSlice(deliveryNewPageBody, "<DeliveryCreateManager", "/>");
+  assert.doesNotMatch(managerProps, /\b(?:user|role|permissions?|overrides)=/i);
+  assert.doesNotMatch(deliveryNewPageBody, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i);
+});
 
 test("齐套页面导入页面权限助手", () => assert.match(source.kitting, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));
 test("齐套页面只要求一次 kitting.view", () => assert.equal(occurrenceCount(kittingPageBody, 'requirePagePermission("kitting.view")'), 1));
