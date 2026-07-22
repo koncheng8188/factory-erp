@@ -568,6 +568,38 @@ test("订单详情页计算部件更新组合权限且使用空覆盖", () => {
 test("订单详情页计算部件删除组合权限且使用空覆盖", () => {
   assert.match(source.orderDetail, /const canDeletePart =\s+hasPermission\(user\.role, "part\.view", \[\]\) &&\s+hasPermission\(user\.role, "part\.delete", \[\]\)/);
 });
+test("订单详情页仍只以 order.view 作为页面访问门禁", () => {
+  const orderDetailBody = functionBody(source.orderDetail, "export default async function OrderDetailPage");
+  assert.equal(occurrenceCount(orderDetailBody, 'requirePagePermission("order.view")'), 1);
+  assert.doesNotMatch(orderDetailBody, /requirePageAllPermissions/);
+});
+test("订单详情页在查询前计算送货创建的最小四项权限", () => {
+  const permissionBlock = sourceSlice(source.orderDetail, "const canCreateDeliveryByPermission =", ";");
+  for (const permission of ["order.view", "product.view", "delivery.view", "delivery.create"]) {
+    assert.match(permissionBlock, new RegExp(`hasPermission\\(user\\.role, "${permission.replace(".", "\\.")}", \\[\\]\\)`));
+  }
+  assert.doesNotMatch(permissionBlock, /drawing\.view|customer\.view|delivery\.print|order\.edit|product\.edit/);
+  assertBefore(source.orderDetail, "const canCreateDeliveryByPermission =", "const { id } = await params");
+  assertBefore(source.orderDetail, "const canCreateDeliveryByPermission =", "prisma.order.findFirst");
+});
+test("订单详情只向 Manager 传递最小送货创建权限 Boolean", () => {
+  const managerProps = sourceSlice(source.orderDetail, "<OrderDetailManager", "/>" );
+  assert.match(managerProps, /canCreateDeliveryByPermission=\{canCreateDeliveryByPermission\}/);
+  assert.doesNotMatch(managerProps, /(?:^|\n)\s*(?:user|role|permissions?|overrides)=/im);
+  assert.match(source.orderManager, /canCreateDeliveryByPermission: boolean;/);
+  assert.doesNotMatch(source.orderManager, /\b(?:user|role|permissions?|overrides)\s*:/i);
+});
+test("订单详情送货创建权限与业务状态使用明确的独立 Boolean", () => {
+  assert.match(source.orderManager, /const canCreateDeliveryByStatus = useMemo\(\s+\(\) => order\.products\.some\(\(product\) => product\.status === "WAIT_DELIVERY" \|\| product\.status === "PARTIAL_DELIVERED"\)/);
+  assert.doesNotMatch(source.orderManager, /const canCreateDelivery = useMemo/);
+});
+test("订单详情的两个送货创建入口同时受权限和业务状态 DOM 裁剪", () => {
+  const deliveryGate = "canCreateDeliveryByPermission && canCreateDeliveryByStatus";
+  assert.equal(occurrenceCount(source.orderManager, deliveryGate), 2);
+  assert.match(source.orderManager, /\{canCreateDeliveryByPermission && canCreateDeliveryByStatus \? \(\s+<Link[\s\S]*?href=\{deliveryCreateHref\}[\s\S]*?新建送货单[\s\S]*?\) : null\}/);
+  assert.match(source.orderManager, /\{canCreateDeliveryByPermission && canCreateDeliveryByStatus \? \(\s+<Link[\s\S]*?href=\{`\/delivery\/new\?orderId=\$\{order\.id\}`\}[\s\S]*?创建送货单[\s\S]*?\) : null\}/);
+  assert.doesNotMatch(source.orderManager, /disabled=\{!?canCreateDelivery(?:ByPermission|ByStatus)?\}/);
+});
 test("订单详情页只向 Manager 传入批准的写权限 Boolean", () => {
   const managerProps = sourceSlice(source.orderDetail, "<OrderDetailManager", "/>" );
   for (const name of [
@@ -581,7 +613,7 @@ test("订单详情页只向 Manager 传入批准的写权限 Boolean", () => {
   ]) {
     assert.match(managerProps, new RegExp(`${name}=\\{${name}\\}`));
   }
-  assert.doesNotMatch(managerProps, /canCreateOrder|canDeleteOrder|role=|permissions?=|user=|overrides=/i);
+  assert.doesNotMatch(managerProps, /canCreateOrder|canDeleteOrder|(?:^|\n)\s*(?:role|permissions?|user|overrides)=/im);
 });
 test("订单详情 Manager 声明产品和部件的独立写权限 Boolean", () => {
   for (const name of [
@@ -594,7 +626,7 @@ test("订单详情 Manager 声明产品和部件的独立写权限 Boolean", () 
   ]) {
     assert.match(source.orderManager, new RegExp(`${name}: boolean`));
   }
-  assert.doesNotMatch(source.orderManager, /\brole\s*:|permissions?\s*:|overrides\s*:/i);
+  assert.doesNotMatch(source.orderManager, /(?:^|\n)\s*(?:role|permissions?|overrides)\s*:/im);
 });
 test("订单基本信息编辑按钮由 canUpdateOrder 条件渲染", () => assert.match(source.orderManager, /\{canUpdateOrder \? \([\s\S]*?编辑订单[\s\S]*?\) : null\}/));
 test("订单详情编辑模式入口有防御性权限检查", () => assert.match(functionBody(source.orderManager, "function startEditOrder"), /if \(!canUpdateOrder\) return/));

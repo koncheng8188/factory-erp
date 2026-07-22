@@ -14,6 +14,11 @@ type OrderDetailPageProps = {
 
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
   const user = await requirePagePermission("order.view");
+  const canCreateDeliveryByPermission =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "delivery.view", []) &&
+    hasPermission(user.role, "delivery.create", []);
   const canUpdateOrder = hasPermission(user.role, "order.update", []);
   const canCreateProduct =
     hasPermission(user.role, "product.view", []) &&
@@ -301,6 +306,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         canPrintOrder={canPrintOrder}
         canCompleteProductionProduct={canCompleteProductionProduct}
         canCreateOutsourceOrder={canCreateOutsourceOrder}
+        canCreateDeliveryByPermission={canCreateDeliveryByPermission}
       />
     </div>
   );

@@ -335,7 +335,8 @@ export function OrderDetailManager({
   canObsoleteDrawing,
   canPrintOrder,
   canCompleteProductionProduct,
-  canCreateOutsourceOrder
+  canCreateOutsourceOrder,
+  canCreateDeliveryByPermission
 }: {
   order: OrderDetail;
   customers: Customer[];
@@ -355,6 +356,7 @@ export function OrderDetailManager({
   canPrintOrder: boolean;
   canCompleteProductionProduct: boolean;
   canCreateOutsourceOrder: boolean;
+  canCreateDeliveryByPermission: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -377,7 +379,7 @@ export function OrderDetailManager({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const canCreateDelivery = useMemo(
+  const canCreateDeliveryByStatus = useMemo(
     () => order.products.some((product) => product.status === "WAIT_DELIVERY" || product.status === "PARTIAL_DELIVERED"),
     [order.products]
   );
@@ -454,9 +456,11 @@ export function OrderDetailManager({
             <Link className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" href={abnormalListHref}>
               查看异常
             </Link>
-            <Link className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white !text-white hover:bg-slate-700 hover:text-white hover:!text-white" href={deliveryCreateHref}>
-              新建送货单
-            </Link>
+            {canCreateDeliveryByPermission && canCreateDeliveryByStatus ? (
+              <Link className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white !text-white hover:bg-slate-700 hover:text-white hover:!text-white" href={deliveryCreateHref}>
+                新建送货单
+              </Link>
+            ) : null}
           </div>
         </div>
 
@@ -1376,7 +1380,7 @@ export function OrderDetailManager({
             >
               图纸上传中心
             </Link>
-            {canCreateDelivery ? (
+            {canCreateDeliveryByPermission && canCreateDeliveryByStatus ? (
               <Link
                 className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold !text-white hover:bg-slate-700 hover:!text-white"
                 href={`/delivery/new?orderId=${order.id}`}
