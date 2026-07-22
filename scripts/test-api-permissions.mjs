@@ -543,26 +543,16 @@ test("送货列表 POST 精确要求完整四项资源链权限", () => {
     assert.doesNotMatch(executableDeliveryPost, new RegExp(permission.replaceAll(".", "\\.")));
   }
 });
-test("送货列表 POST 鉴权早于 JSON、解析、Prisma 和事务", () => {
-  for (const marker of ["request.json()", "parseDate(", "parseQuantity(", "new Map", "prisma.$transaction"]) {
-    assertBefore(executableDeliveryPost, "requireApiAllPermissions", marker);
-  }
+test("送货列表 POST 鉴权早于 JSON 并委托完整性服务", () => {
+  for (const marker of ["request.json()", "createDeliveryIntegrity"]) assertBefore(executableDeliveryPost, "requireApiAllPermissions", marker);
   assert.match(executableDeliveryPost, /if \(!authResult\.ok\) return authResult\.response/);
+  assert.match(executableDeliveryPost, /createDeliveryIntegrity\(\{ client: prisma, input: body \}\)/);
+  assert.doesNotMatch(executableDeliveryPost, /parseDate\(|parseQuantity\(|new Map|prisma\.\$transaction|errorMessage\(error/);
 });
-test("送货列表 POST 保留原业务事务、编号、状态和错误语义", () => {
-  for (const marker of [
-    "prisma.$transaction",
-    "missingDeliveryQuantity",
-    "tx.deliveryOrder.findFirst",
-    "tx.deliveryOrder.create",
-    "tx.deliveryOrderItem.create",
-    "tx.product.update",
-    "tx.order.update",
-    "tx.deliveryOrder.update",
-    'error instanceof BusinessError',
-    'errorMessage(error, "创建送货单失败。")'
-  ]) assert.match(executableDeliveryPost, new RegExp(escapeRegExp(marker)));
-  assert.doesNotMatch(executableDeliveryPost, /createDelivery(?:Integrity|Service)|P2002|P2003|P2025|P1008|P2034|SQLITE_BUSY|database is locked/i);
+test("送货列表 POST 使用稳定 JSON 与服务错误映射", () => {
+  assert.match(executableDeliveryPost, /catch \{\s+return NextResponse\.json\(\{ error: "请求格式错误。" \}, \{ status: 400 \}\)/);
+  assert.match(executableDeliveryPost, /error instanceof DeliveryIntegrityError[\s\S]*?error: error\.publicMessage/);
+  assert.match(executableDeliveryPost, /error: "创建送货单失败，请稍后重试。"/);
 });
 test("送货列表 GET 查询和响应结构保持原样", () => {
   assert.match(deliveryGet, /prisma\.deliveryOrder\.findMany/);
@@ -2115,6 +2105,15 @@ test("回厂完整性服务使用条件 updateMany 及 count 冲突保护", () =
   assert.match(source.returnsIntegrity, /productPart\.updateMany/);
   assert.match(source.returnsIntegrity, /outsourceOrder\.updateMany/);
   assert.match(source.returnsIntegrity, /count !== 1/);
+});
+
+test("送货完整性服务具备严格输入、条件更新和三次重试边界", async () => {
+  const integrity = await readFile(path.join(root, "src", "lib", "delivery-integrity.ts"), "utf8");
+  for (const marker of ["MAX_DELIVERY_CREATE_ATTEMPTS = 3", "送货日期格式错误。", "送货数量必须是正安全整数。", "同一产品不能重复添加。", "updateMany", "当日送货单数量已达到上限。", "isDeliveryNumberConflict", "isTransientDeliverySqliteError"]) assert.match(integrity, new RegExp(escapeRegExp(marker)));
+  assert.match(integrity, /P2034/);
+  assert.match(integrity, /Socket timeout/);
+  assert.match(integrity, /SQLITE_BUSY/);
+  assert.doesNotMatch(integrity, /@\/lib\/prisma|NextResponse|process\.env|node:fs/);
 });
 
 test("回厂数量以正常和异常物理数量合计，异常历史保持粘性", () => {

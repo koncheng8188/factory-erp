@@ -504,11 +504,17 @@ test("送货 POST 注册精确四项资源权限", () => {
   ]);
 });
 
-test("送货 POST 鉴权早于 JSON、解析和事务", () => {
+test("送货 POST 鉴权早于 JSON 并委托完整性服务", () => {
   const handler = functionBody(businessHandlers.get("POST /api/delivery").source, "POST");
-  for (const marker of ["request.json()", "parseDate(", "parseQuantity(", "new Map", "prisma.$transaction"]) {
-    assertBefore(handler, "requireApiAllPermissions", marker, "POST /api/delivery");
-  }
+  assertBefore(handler, "requireApiAllPermissions", "request.json()", "POST /api/delivery");
+  assertBefore(handler, "requireApiAllPermissions", "createDeliveryIntegrity", "POST /api/delivery");
+  assert.match(handler, /createDeliveryIntegrity\(\{ client: prisma, input: body \}\)/);
+  assert.doesNotMatch(handler, /parseDate\(|parseQuantity\(|new Map|prisma\.\$transaction|errorMessage\(error/);
+});
+test("送货 POST 保持 C3h protected 分类且 Route 不传测试钩子", () => {
+  const handler = functionBody(businessHandlers.get("POST /api/delivery").source, "POST");
+  assert.match(handler, /createDeliveryIntegrity\(\{ client: prisma, input: body \}\)/);
+  assert.doesNotMatch(handler, /dependencies:|beforeTransactionAttempt|afterSnapshotsValidated/);
 });
 
 test("送货 POST 权限失败立即返回且不回退登录助手", () => {
