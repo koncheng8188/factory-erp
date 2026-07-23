@@ -32,6 +32,7 @@ const files = {
   returnCreateManager: "src/app/(protected)/returns/new/return-create-manager.tsx",
   delivery: "src/app/(protected)/delivery/page.tsx",
   deliveryNew: "src/app/(protected)/delivery/new/page.tsx",
+  deliveryCreateManager: "src/app/(protected)/delivery/new/delivery-create-manager.tsx",
   orderDetail: "src/app/(protected)/orders/[id]/page.tsx",
   orderManager: "src/app/(protected)/orders/[id]/order-detail-manager.tsx",
   drawingUploadCenter: "src/app/(protected)/orders/[id]/drawings/upload-center/page.tsx",
@@ -104,6 +105,10 @@ function functionBody(content, declaration) {
   }
 
   assert.fail(`函数体未闭合：${declaration}`);
+}
+
+function stripComments(content) {
+  return content.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
 function menuEntry(label) {
@@ -1065,6 +1070,67 @@ test("送货新建页不向 Client 传角色或完整权限集合", () => {
   const managerProps = sourceSlice(deliveryNewPageBody, "<DeliveryCreateManager", "/>");
   assert.doesNotMatch(managerProps, /\b(?:user|role|permissions?|overrides)=/i);
   assert.doesNotMatch(deliveryNewPageBody, /requirePageUser|next\/headers|cookies\(|document\.cookie|session|role\s*(?:===|!==)/i);
+});
+test("送货创建 Client 使用独立网络状态和同步提交锁", () => {
+  assert.match(source.deliveryCreateManager, /useRef/);
+  assert.match(source.deliveryCreateManager, /const submittingRef = useRef\(false\)/);
+  assert.match(source.deliveryCreateManager, /const \[isSubmitting, setIsSubmitting\] = useState\(false\)/);
+});
+test("送货创建 Client 保留页面跳转 transition 并联合计算忙碌状态", () => {
+  assert.match(source.deliveryCreateManager, /const \[isPending, startTransition\] = useTransition\(\)/);
+  assert.match(source.deliveryCreateManager, /const isBusy = isSubmitting \|\| isPending/);
+});
+test("送货提交函数在实际代码中同步防止重入", () => {
+  const body = stripComments(functionBody(source.deliveryCreateManager, "async function submitForm"));
+  assert.match(body, /if \(submittingRef\.current \|\| isSubmitting \|\| isPending\) return;/);
+  assertBefore(body, "if (submittingRef.current || isSubmitting || isPending) return", 'fetch("/api/delivery",');
+});
+test("送货提交在 fetch 前锁定同步 ref 和网络状态", () => {
+  const body = stripComments(functionBody(source.deliveryCreateManager, "async function submitForm"));
+  assertBefore(body, "submittingRef.current = true", 'fetch("/api/delivery",');
+  assertBefore(body, "setIsSubmitting(true)", 'fetch("/api/delivery",');
+});
+test("送货提交保持原 POST 地址、方法和 JSON 请求头", () => {
+  const body = stripComments(functionBody(source.deliveryCreateManager, "async function submitForm"));
+  assert.match(body, /fetch\("\/api\/delivery", \{/);
+  assert.match(body, /method: "POST"/);
+  assert.match(body, /"Content-Type": "application\/json"/);
+});
+test("送货提交保持原有 JSON 字段和明细映射", () => {
+  const body = stripComments(functionBody(source.deliveryCreateManager, "async function submitForm"));
+  for (const marker of ["orderId: selectedOrder.id", "customerName: selectedOrder.customerName", "...form", "items: detailItems.map", "productId: item.id", "deliveryQuantity: item.deliveryQuantity", "remark: item.remark"]) {
+    assert.match(body, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+test("送货提交不引入请求 ID、幂等键或自动重试", () => {
+  const body = stripComments(functionBody(source.deliveryCreateManager, "async function submitForm"));
+  assert.doesNotMatch(body, /requestId|idempotenc|retry/i);
+});
+test("送货提交将网络和 JSON 错误纳入 finally 解锁路径", () => {
+  const body = stripComments(functionBody(source.deliveryCreateManager, "async function submitForm"));
+  assert.match(body, /try \{[\s\S]*?await fetch\("\/api\/delivery", \{[\s\S]*?await response\.json\(\)\.catch[\s\S]*?\} finally \{/);
+  assert.match(body, /if \(!response\.ok\) \{[\s\S]*?return;/);
+  assert.match(body, /finally \{\s+if \(!succeeded\) \{\s+submittingRef\.current = false;\s+setIsSubmitting\(false\);/);
+});
+test("送货提交成功后在跳转前保持锁定", () => {
+  const body = stripComments(functionBody(source.deliveryCreateManager, "async function submitForm"));
+  const successPath = sourceSlice(body, "succeeded = true;", "finally {");
+  assertBefore(successPath, "succeeded = true", "startTransition");
+  assert.doesNotMatch(successPath, /submittingRef\.current = false|setIsSubmitting\(false\)/);
+});
+test("送货提交成功继续使用原 transition 跳转路径", () => {
+  const body = stripComments(functionBody(source.deliveryCreateManager, "async function submitForm"));
+  assert.match(body, /startTransition\(\(\) => router\.push\(`\/delivery\/\$\{data\.deliveryOrder\.id\}`\)\)/);
+});
+test("送货保存按钮在网络或跳转忙碌期间禁用", () => {
+  assert.match(source.deliveryCreateManager, /<button className="rounded-md bg-\[#172033\][\s\S]*?disabled=\{isBusy\}/);
+  assert.match(source.deliveryCreateManager, /isSubmitting \? "正在保存\.\.\." : isPending \? "正在跳转\.\.\." : "保存送货单"/);
+});
+test("送货重复提交断言检查已剥离注释的真实函数体", () => {
+  const body = stripComments(functionBody(source.deliveryCreateManager, "async function submitForm"));
+  assert.doesNotMatch(body, /\/\*|\/\//);
+  assert.match(body, /submittingRef\.current = true/);
+  assert.match(body, /setIsSubmitting\(true\)/);
 });
 
 test("齐套页面导入页面权限助手", () => assert.match(source.kitting, /import \{ requirePagePermission \} from "@\/lib\/auth\/authorization"/));

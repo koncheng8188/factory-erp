@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { todayInputValue } from "@/lib/delivery";
 import { getProductStatusLabel } from "@/lib/product-status";
 
@@ -51,6 +51,8 @@ export function DeliveryCreateManager({
 }: DeliveryCreateManagerProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const submittingRef = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState<FormState>({
     deliveryDate: todayInputValue(),
     receiver: "",
@@ -69,6 +71,7 @@ export function DeliveryCreateManager({
     [orders, selectedOrderId]
   );
   const deliverableProducts = selectedOrder?.products.filter((product) => product.canDeliver) ?? [];
+  const isBusy = isSubmitting || isPending;
 
   function updateField(field: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -144,6 +147,9 @@ export function DeliveryCreateManager({
 
   async function submitForm(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (submittingRef.current || isSubmitting || isPending) return;
+
     setMessage("");
     setError("");
 
@@ -167,29 +173,41 @@ export function DeliveryCreateManager({
       }
     }
 
-    const response = await fetch("/api/delivery", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orderId: selectedOrder.id,
-        customerName: selectedOrder.customerName,
-        ...form,
-        items: detailItems.map((item) => ({
-          productId: item.id,
-          deliveryQuantity: item.deliveryQuantity,
-          remark: item.remark
-        }))
-      })
-    });
-    const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查日志。" }));
+    let succeeded = false;
+    submittingRef.current = true;
+    setIsSubmitting(true);
 
-    if (!response.ok) {
-      setError(data.error ?? "保存送货单失败。");
-      return;
+    try {
+      const response = await fetch("/api/delivery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: selectedOrder.id,
+          customerName: selectedOrder.customerName,
+          ...form,
+          items: detailItems.map((item) => ({
+            productId: item.id,
+            deliveryQuantity: item.deliveryQuantity,
+            remark: item.remark
+          }))
+        })
+      });
+      const data = await response.json().catch(() => ({ error: "服务端返回了非 JSON 错误，请检查日志。" }));
+
+      if (!response.ok) {
+        setError(data.error ?? "保存送货单失败。");
+        return;
+      }
+
+      succeeded = true;
+      setMessage("送货单已保存。");
+      startTransition(() => router.push(`/delivery/${data.deliveryOrder.id}`));
+    } finally {
+      if (!succeeded) {
+        submittingRef.current = false;
+        setIsSubmitting(false);
+      }
     }
-
-    setMessage("送货单已保存。");
-    startTransition(() => router.push(`/delivery/${data.deliveryOrder.id}`));
   }
 
   return (
@@ -358,8 +376,8 @@ export function DeliveryCreateManager({
       </section>
 
       <div className="flex flex-wrap gap-3">
-        <button className="rounded-md bg-[#172033] px-5 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
-          保存送货单
+        <button className="rounded-md bg-[#172033] px-5 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isBusy}>
+          {isSubmitting ? "正在保存..." : isPending ? "正在跳转..." : "保存送货单"}
         </button>
       </div>
     </form>
