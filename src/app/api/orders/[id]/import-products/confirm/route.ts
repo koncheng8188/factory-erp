@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { confirmOrderProductImport } from "@/lib/import-order-products";
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiAllPermissions } from "@/lib/auth/authorization";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
 export async function POST(request: NextRequest, context: RouteContext) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "order.view",
+    "order.importProducts",
+    "product.view",
+    "product.create",
+    "part.view",
+    "part.create"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const { id } = await context.params;

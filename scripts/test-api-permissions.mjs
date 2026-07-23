@@ -109,6 +109,13 @@ const source = {
   importTemplate: await readSource("src", "app", "api", "imports", "excel", "template", "route.ts"),
   simpleTemplate: await readSource("src", "app", "api", "imports", "excel", "simple-template", "route.ts"),
   orderImportTemplate: await readSource("src", "app", "api", "orders", "[id]", "import-products", "template", "route.ts"),
+  importPreview: await readSource("src", "app", "api", "imports", "excel", "preview", "route.ts"),
+  importConfirm: await readSource("src", "app", "api", "imports", "excel", "confirm", "route.ts"),
+  simpleImportPreview: await readSource("src", "app", "api", "imports", "excel", "simple-preview", "route.ts"),
+  simpleImportConfirm: await readSource("src", "app", "api", "imports", "excel", "simple-confirm", "route.ts"),
+  orderImportPreview: await readSource("src", "app", "api", "orders", "[id]", "import-products", "preview", "route.ts"),
+  orderImportConfirm: await readSource("src", "app", "api", "orders", "[id]", "import-products", "confirm", "route.ts"),
+  authorization: await readSource("src", "lib", "auth", "authorization.ts"),
   customers: await readSource("src", "app", "api", "customers", "route.ts"),
   customerById: await readSource("src", "app", "api", "customers", "[id]", "route.ts"),
   orders: await readSource("src", "app", "api", "orders", "route.ts"),
@@ -161,6 +168,12 @@ const backupListGet = functionBody(source.backupList, "GET");
 const importTemplateGet = functionBody(source.importTemplate, "GET");
 const simpleTemplateGet = functionBody(source.simpleTemplate, "GET");
 const orderImportTemplateGet = functionBody(source.orderImportTemplate, "GET");
+const importPreviewPost = executableSource(functionBody(source.importPreview, "POST"));
+const importConfirmPost = executableSource(functionBody(source.importConfirm, "POST"));
+const simpleImportPreviewPost = executableSource(functionBody(source.simpleImportPreview, "POST"));
+const simpleImportConfirmPost = executableSource(functionBody(source.simpleImportConfirm, "POST"));
+const orderImportPreviewPost = executableSource(functionBody(source.orderImportPreview, "POST"));
+const orderImportConfirmPost = executableSource(functionBody(source.orderImportConfirm, "POST"));
 const customerPost = functionBody(source.customers, "POST");
 const customerPut = functionBody(source.customerById, "PUT");
 const customerDelete = functionBody(source.customerById, "DELETE");
@@ -944,7 +957,67 @@ test("订单模板保留文件名、MIME 和模板结构", () => { assert.match(
 test("四个新增下载和列表 GET 均保持统一权限失败返回", () => { for (const handler of [backupListGet, importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/); });
 test("三个模板 GET 不读取 Prisma、params 或本地文件", () => { for (const handler of [importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.doesNotMatch(handler, /prisma\.|context\.params|readFile\(|readdir\(/); });
 test("备份创建和导入写接口未提前接入权限助手", () => assert.doesNotMatch(source.backupCreate, /requireApi(?:Any|All)?Permission/));
-test("导入预览和确认接口仍未提前接入权限助手", async () => { const paths = [["imports","excel","preview","route.ts"],["imports","excel","confirm","route.ts"],["imports","excel","simple-preview","route.ts"],["imports","excel","simple-confirm","route.ts"],["orders","[id]","import-products","confirm","route.ts"]]; for (const segments of paths) assert.doesNotMatch(await readSource("src","app","api",...segments), /requireApi(?:Any|All)?Permission/); });
+test("六个导入 POST route 统一使用全权限助手且不回退登录助手", () => {
+  for (const route of [source.importPreview, source.importConfirm, source.simpleImportPreview, source.simpleImportConfirm, source.orderImportPreview, source.orderImportConfirm]) {
+    const executableRoute = executableSource(route);
+    assert.match(executableRoute, /import \{ requireApiAllPermissions \} from "@\/lib\/auth\/authorization"/);
+    assert.doesNotMatch(executableRoute, /requireApiUser/);
+  }
+});
+test("全权限助手固定使用空 runtime overrides", () => {
+  assert.match(source.authorization, /const noOverrides = \[\] as const/);
+  assert.match(
+    source.authorization,
+    /export async function requireApiAllPermissions[\s\S]*?hasPermission\(auth\.user\.role, permission, noOverrides\)/
+  );
+});
+test("标准和简化 Preview 精确要求四项只读权限", () => {
+  for (const handler of [importPreviewPost, simpleImportPreviewPost]) {
+    assertAllPermissions(handler, ["import.view", "import.preview", "customer.view", "order.view"]);
+    assert.doesNotMatch(handler, /import\.execute|\.create|drawing\.|delivery\.|outsource\./);
+  }
+});
+test("标准和简化 Confirm 精确要求十项导入资源链权限", () => {
+  const permissions = ["import.view", "import.execute", "customer.view", "customer.create", "order.view", "order.create", "product.view", "product.create", "part.view", "part.create"];
+  for (const handler of [importConfirmPost, simpleImportConfirmPost]) {
+    assertAllPermissions(handler, permissions);
+    assert.doesNotMatch(handler, /import\.preview|drawing\.|delivery\.|outsource\.|return\./);
+  }
+});
+test("订单产品 Preview 精确要求订单查看和导入权限", () => {
+  assertAllPermissions(orderImportPreviewPost, ["order.view", "order.importProducts"]);
+  assert.doesNotMatch(orderImportPreviewPost, /import\.|product\.|part\.|order\.update|drawing\.|delivery\.|outsource\./);
+});
+test("订单产品 Confirm 精确要求六项订单产品资源链权限", () => {
+  assertAllPermissions(orderImportConfirmPost, ["order.view", "order.importProducts", "product.view", "product.create", "part.view", "part.create"]);
+  assert.doesNotMatch(orderImportConfirmPost, /import\.|customer\.|order\.create|order\.update|drawing\.|delivery\.|outsource\./);
+});
+test("六个导入 POST 权限失败后立即返回", () => {
+  for (const handler of [importPreviewPost, importConfirmPost, simpleImportPreviewPost, simpleImportConfirmPost, orderImportPreviewPost, orderImportConfirmPost]) {
+    assert.match(handler, /if \(!authResult\.ok\) return authResult\.response/);
+  }
+});
+test("全局导入 Preview 鉴权早于表单、文件、Excel 与 Prisma 校验", () => {
+  for (const handler of [importPreviewPost, simpleImportPreviewPost]) {
+    for (const marker of ["request.formData()", "file.name", "file.size", "file.arrayBuffer()", "parse", "validate"]) {
+      assertBefore(handler, "requireApiAllPermissions", marker);
+    }
+  }
+});
+test("全局导入 Confirm 鉴权早于 JSON 与事务服务委托", () => {
+  assertBefore(importConfirmPost, "requireApiAllPermissions", "request.json()");
+  assertBefore(importConfirmPost, "requireApiAllPermissions", "confirmImportRows(rows)");
+  assertBefore(simpleImportConfirmPost, "requireApiAllPermissions", "request.json()");
+  assertBefore(simpleImportConfirmPost, "requireApiAllPermissions", "confirmSimpleImportRows(rows)");
+});
+test("订单产品 Preview 与 Confirm 鉴权早于 params、请求解析和服务委托", () => {
+  for (const [handler, markers] of [
+    [orderImportPreviewPost, ["context.params", "request.formData()", "file.arrayBuffer()", "parseOrderProductWorkbook", "validateOrderProductRows"]],
+    [orderImportConfirmPost, ["context.params", "request.json()", "confirmOrderProductImport(id, rows)"]]
+  ]) {
+    for (const marker of markers) assertBefore(handler, "requireApiAllPermissions", marker);
+  }
+});
 test("新增 route 测试均使用独立 GET 函数体", () => { for (const handler of [backupListGet, importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.doesNotMatch(handler, /export async function POST/); });
 test("模板 GET 不直接使用 requireApiUser", () => { for (const handler of [importTemplateGet, simpleTemplateGet, orderImportTemplateGet]) assert.doesNotMatch(handler, /requireApiUser/); });
 test("备份列表 GET 不直接使用 requireApiUser", () => assert.doesNotMatch(backupListGet, /requireApiUser/));
@@ -992,10 +1065,10 @@ test("客户写接口保持原字段白名单与成功响应", () => {
   assert.match(customerPut, /NextResponse\.json\(\{ customer \}\)/);
   assert.match(customerDelete, /NextResponse\.json\(\{ ok: true \}\)/);
 });
-test("C3h-1 写权限登记包含二十五个 protected 接口", () => {
+test("C3i-1a 写权限登记包含三十一个 protected 接口", () => {
   assert.match(source.writeRegistry, /const protectedHandlers = new Map/);
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 25\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 7\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 31\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 1\)/);
   assert.match(source.writeRegistry, /\["POST \/api\/outsourcing", \{ stage: "C3f-1", permissions:/);
   assert.match(source.writeRegistry, /\["POST \/api\/returns", \{ stage: "C3g-1", permissions:/);
   assert.match(source.writeRegistry, /\["POST \/api\/delivery", \{ stage: "C3h-1", permissions:/);
@@ -2058,9 +2131,10 @@ test("Route响应不包含cause或Prisma错误字段", () => {
 test("C3f-1页面创建权限测试继续保留", () => {
   assert.match(source.pagePermissionTests, /四个直达外发创建入口全部使用统一 Boolean/);
 });
-test("写权限注册表更新为protected25和pending7", () => {
-  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 25\)/);
-  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 7\)/);
+test("写权限注册表更新为protected31和pending1", () => {
+  assert.match(source.writeRegistry, /assert\.equal\(protectedHandlers\.size, 31\)/);
+  assert.match(source.writeRegistry, /assert\.equal\(pendingHandlers\.size, 1\)/);
+  assert.match(source.writeRegistry, /POST \/api\/system\/backup/);
 });
 test("外发完整性服务不使用环境测试开关或文件系统", () => {
   for (const marker of ["process.env", "node:" + "fs", "read" + "File", "write" + "File", "absolute path"]) {

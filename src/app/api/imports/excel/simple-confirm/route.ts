@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { confirmSimpleImportRows } from "@/lib/import-excel-simple";
-import { requireApiUser } from "@/lib/auth/api-user";
+import { requireApiAllPermissions } from "@/lib/auth/authorization";
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireApiUser();
+  const authResult = await requireApiAllPermissions([
+    "import.view",
+    "import.execute",
+    "customer.view",
+    "customer.create",
+    "order.view",
+    "order.create",
+    "product.view",
+    "product.create",
+    "part.view",
+    "part.create"
+  ]);
   if (!authResult.ok) return authResult.response;
   try {
     const body = await request.json();
