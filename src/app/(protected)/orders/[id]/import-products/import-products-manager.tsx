@@ -72,7 +72,13 @@ function StatBox({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function ImportProductsManager({ orderId }: { orderId: string }) {
+export function ImportProductsManager({
+  orderId,
+  canExecuteOrderProductImport
+}: {
+  orderId: string;
+  canExecuteOrderProductImport: boolean;
+}) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
@@ -119,7 +125,7 @@ export function ImportProductsManager({ orderId }: { orderId: string }) {
   }
 
   function confirmImport() {
-    if (!preview || !preview.canConfirm) return;
+    if (!canExecuteOrderProductImport || !preview || !preview.canConfirm) return;
     setError("");
     setMessage("");
     setResult(null);
@@ -217,14 +223,16 @@ export function ImportProductsManager({ orderId }: { orderId: string }) {
           <section className="rounded-md border border-[#d8dde6] bg-white p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold">预览</h2>
-              <button
-                type="button"
-                className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-                disabled={isPending || !preview.canConfirm}
-                onClick={confirmImport}
-              >
-                确认导入
-              </button>
+              {canExecuteOrderProductImport ? (
+                <button
+                  type="button"
+                  className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  disabled={isPending || !preview.canConfirm}
+                  onClick={confirmImport}
+                >
+                  确认导入
+                </button>
+              ) : null}
             </div>
             <div className="mt-4 space-y-5">
               {preview.products.map((product) => (

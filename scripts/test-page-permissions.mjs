@@ -16,6 +16,8 @@ const files = {
   kittingManager: "src/app/(protected)/kitting/kitting-manager.tsx",
   excelImport: "src/app/(protected)/imports/excel/page.tsx",
   excelImportManager: "src/app/(protected)/imports/excel/import-excel-manager.tsx",
+  orderProductImport: "src/app/(protected)/orders/[id]/import-products/page.tsx",
+  orderProductImportManager: "src/app/(protected)/orders/[id]/import-products/import-products-manager.tsx",
   backupPage: "src/app/(protected)/settings/backup/page.tsx",
   backupManager: "src/app/(protected)/settings/backup/backup-manager.tsx",
   backupListApi: "src/app/api/system/backup/list/route.ts",
@@ -1288,7 +1290,10 @@ test("全局导入保留预览与确认调用", () => {
   assert.match(source.excelImportManager, /fetch\(previewUrl/);
   assert.match(source.excelImportManager, /fetch\(confirmUrl/);
 });
-test("全局导入页面未提前接入 preview 或 execute 权限", () => assert.doesNotMatch(excelImportPageBody, /import\.(?:preview|execute)/));
+test("全局导入页面未将 Preview 或 Execute 升级为页面访问门禁", () => {
+  assert.doesNotMatch(excelImportPageBody, /requirePagePermission\("import\.(?:preview|execute)"\)/);
+  assert.doesNotMatch(excelImportPageBody, /requirePageAllPermissions/);
+});
 
 test("客户管理菜单绑定 customer.view", () => assert.equal(menuEntry("客户管理"), "customer.view"));
 test("订单管理菜单绑定 order.view", () => assert.equal(menuEntry("订单管理"), "order.view"));
@@ -1355,7 +1360,7 @@ test("备份列表 GET 继续使用 backup.view", () => assert.match(source.back
 test("备份创建 API 未提前接入 backup.create", () => assert.doesNotMatch(source.backupCreateApi, /backup\.create/));
 test("备份页面和 Manager 不使用 CSS 隐藏创建入口", () => assert.doesNotMatch(source.backupManager, /(?:hidden|invisible).*一键备份|一键备份[\s\S]{0,200}(?:hidden|invisible)/));
 
-test("仅已批准的读取 API 引用权限助手", async () => {
+test("仅已批准的读取和写入 API 引用权限助手", async () => {
   const apiRoot = path.join(root, "src/app/api");
   const permittedRoutes = new Set([
     "drawings/[id]/file/route.ts",
@@ -1389,6 +1394,12 @@ test("仅已批准的读取 API 引用权限助手", async () => {
     ,"parts/[id]/abnormal/route.ts"
     ,"parts/[id]/abnormal/resolve/route.ts"
     ,"products/[id]/mark-production-complete/route.ts"
+    ,"imports/excel/preview/route.ts"
+    ,"imports/excel/confirm/route.ts"
+    ,"imports/excel/simple-preview/route.ts"
+    ,"imports/excel/simple-confirm/route.ts"
+    ,"orders/[id]/import-products/preview/route.ts"
+    ,"orders/[id]/import-products/confirm/route.ts"
   ]);
   const { readdir } = await import("node:fs/promises");
   async function scan(directory) {
@@ -1679,6 +1690,140 @@ test("C3f-1 页面改动未引入跨模块权限或 C3f-2 业务逻辑", () => {
   for (const content of [source.outsourcing, source.outsourcingManager, source.outsourceNew, source.outsourceCreateManager]) {
     assert.doesNotMatch(content, /outsource\.update|return\.create|P2002|P1008|P2034|SQLITE_BUSY|database is locked/i);
   }
+});
+
+test("全局 Excel 导入页仍只以 import.view 作为页面访问门禁", () => {
+  const body = functionBody(source.excelImport, "export default async function ExcelImportPage");
+  assert.equal(occurrenceCount(body, 'requirePagePermission("import.view")'), 1);
+  assert.doesNotMatch(body, /requirePageAllPermissions|requirePageAnyPermission/);
+});
+test("全局 Excel 导入页复用页面用户并使用空覆盖权限判断", () => {
+  assert.match(source.excelImport, /const user = await requirePagePermission\("import\.view"\)/);
+  assert.match(source.excelImport, /import \{ hasPermission \} from "@\/lib\/permissions"/);
+  assert.doesNotMatch(source.excelImport, /requirePageUser|cookies\(|session|role\s*(?:===|!==)/i);
+});
+test("全局 Excel Preview Boolean 精确使用四项权限", () => {
+  const block = sourceSlice(source.excelImport, "const canPreviewImport =", ";");
+  for (const permission of ["import.view", "import.preview", "customer.view", "order.view"]) {
+    assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
+  }
+  assert.doesNotMatch(block, /import\.execute|\.create|product\.view|part\.view/);
+});
+test("全局 Excel Confirm Boolean 精确使用十项权限", () => {
+  const block = sourceSlice(source.excelImport, "const canExecuteImport =", ";");
+  for (const permission of ["import.view", "import.execute", "customer.view", "customer.create", "order.view", "order.create", "product.view", "product.create", "part.view", "part.create"]) {
+    assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
+  }
+  assert.doesNotMatch(block, /import\.preview|\.update|\.delete/);
+});
+test("全局 Excel 页只向 Client 传递两个最小 Boolean", () => {
+  const props = sourceSlice(source.excelImport, "<ImportExcelManager", "/>" );
+  assert.match(props, /canPreviewImport=\{canPreviewImport\}/);
+  assert.match(props, /canExecuteImport=\{canExecuteImport\}/);
+  assert.doesNotMatch(props, /\b(?:user|role|permissions?|overrides)=/i);
+});
+test("全局 Excel Client 只接收 Preview 与 Confirm Boolean", () => {
+  assert.match(source.excelImportManager, /canPreviewImport: boolean;/);
+  assert.match(source.excelImportManager, /canExecuteImport: boolean;/);
+  assert.doesNotMatch(source.excelImportManager, /\b(?:user|role|permissions?|overrides)\s*:/i);
+});
+test("全局 Excel Preview 请求受 canPreviewImport 防御并保持原 URL 和 FormData 字段", () => {
+  const body = functionBody(source.excelImportManager, "async function parsePreview");
+  assertBefore(body, "if (!canPreviewImport) return", "new FormData()");
+  assert.match(body, /formData\.append\("file", file\)/);
+  assert.match(source.excelImportManager, /const previewUrl = mode === "simple" \? "\/api\/imports\/excel\/simple-preview" : "\/api\/imports\/excel\/preview"/);
+});
+test("全局 Excel 标准与简化 Preview 控件均由 canPreviewImport 裁剪", () => {
+  assert.match(source.excelImportManager, /\{canPreviewImport \? \(\s+<button[\s\S]*?解析预览[\s\S]*?\) : null\}/);
+  assert.match(source.excelImportManager, /mode === "simple" \? "\/api\/imports\/excel\/simple-preview" : "\/api\/imports\/excel\/preview"/);
+  assert.doesNotMatch(source.excelImportManager, /disabled=\{!?canPreviewImport\}/);
+});
+test("全局 Excel Confirm 请求受 canExecuteImport 防御并保持原 JSON rows 协议", () => {
+  const body = functionBody(source.excelImportManager, "function confirmImport");
+  assertBefore(body, "if (!canExecuteImport || !preview || !preview.canConfirm) return", "JSON.stringify");
+  assert.match(body, /JSON\.stringify\(\{ rows: preview\.rows \}\)/);
+  assert.match(source.excelImportManager, /const confirmUrl = mode === "simple" \? "\/api\/imports\/excel\/simple-confirm" : "\/api\/imports\/excel\/confirm"/);
+});
+test("全局 Excel 标准与简化 Confirm 控件均由 canExecuteImport 裁剪", () => {
+  assert.match(source.excelImportManager, /\{canExecuteImport \? \(\s+<button[\s\S]*?确认导入[\s\S]*?\) : null\}/);
+  assert.match(source.excelImportManager, /mode === "simple" \? "\/api\/imports\/excel\/simple-confirm" : "\/api\/imports\/excel\/confirm"/);
+  assert.doesNotMatch(source.excelImportManager, /disabled=\{!?canExecuteImport\}/);
+});
+test("全局 Excel 模板下载不依赖 Preview 或 Confirm Boolean", () => {
+  const templateBlock = sourceSlice(source.excelImportManager, "const templateHref =", "const previewUrl =");
+  assert.doesNotMatch(templateBlock, /canPreviewImport|canExecuteImport/);
+  assert.match(source.excelImportManager, /href=\{templateHref\}/);
+});
+
+test("订单产品导入页首项完整门禁精确要求两项页面权限", () => {
+  assert.match(source.orderProductImport, /import \{ requirePageAllPermissions \} from "@\/lib\/auth\/authorization"/);
+  assert.match(source.orderProductImport, /const user = await requirePageAllPermissions\(\["order\.view", "order\.importProducts"\]\)/);
+  assert.doesNotMatch(source.orderProductImport, /requirePagePermission\(/);
+});
+test("订单产品导入页鉴权早于 params、订单查询与 notFound", () => {
+  assertBefore(source.orderProductImport, 'requirePageAllPermissions(["order.view", "order.importProducts"])', "await params");
+  assertBefore(source.orderProductImport, 'requirePageAllPermissions(["order.view", "order.importProducts"])', "prisma.order.findFirst");
+  assertBefore(source.orderProductImport, 'requirePageAllPermissions(["order.view", "order.importProducts"])', "notFound()");
+});
+test("订单产品导入 Confirm Boolean 精确使用六项权限", () => {
+  const block = sourceSlice(source.orderProductImport, "const canExecuteOrderProductImport =", ";");
+  for (const permission of ["order.view", "order.importProducts", "product.view", "product.create", "part.view", "part.create"]) {
+    assert.equal(occurrenceCount(block, `hasPermission(user.role, "${permission}", [])`), 1);
+  }
+  assert.doesNotMatch(block, /customer\.|import\.|\.update|\.delete/);
+});
+test("订单产品导入页只向 Client 传 orderId 和最小 Confirm Boolean", () => {
+  const props = sourceSlice(source.orderProductImport, "<ImportProductsManager", "/>" );
+  assert.match(props, /orderId=\{order\.id\}/);
+  assert.match(props, /canExecuteOrderProductImport=\{canExecuteOrderProductImport\}/);
+  assert.doesNotMatch(props, /\b(?:user|role|permissions?|overrides)=/i);
+});
+test("订单产品导入 Client 只接收最小 Confirm Boolean", () => {
+  assert.match(source.orderProductImportManager, /canExecuteOrderProductImport: boolean;/);
+  assert.doesNotMatch(source.orderProductImportManager, /\b(?:user|role|permissions?|overrides)\s*:/i);
+});
+test("订单产品导入 Confirm 请求受 Boolean 防御且保持 rows 协议", () => {
+  const body = functionBody(source.orderProductImportManager, "function confirmImport");
+  assertBefore(body, "if (!canExecuteOrderProductImport || !preview || !preview.canConfirm) return", "JSON.stringify");
+  assert.match(body, /JSON\.stringify\(\{ rows: preview\.rows \}\)/);
+  assert.match(body, /fetch\(`\/api\/orders\/\$\{orderId\}\/import-products\/confirm`/);
+});
+test("订单产品导入 Confirm 控件由 Boolean 裁剪而非 disabled", () => {
+  assert.match(source.orderProductImportManager, /\{canExecuteOrderProductImport \? \(\s+<button[\s\S]*?确认导入[\s\S]*?\) : null\}/);
+  assert.doesNotMatch(source.orderProductImportManager, /disabled=\{!?canExecuteOrderProductImport\}/);
+});
+test("订单产品导入模板与 Preview 不错误依赖创建权限", () => {
+  const previewBody = functionBody(source.orderProductImportManager, "async function parsePreview");
+  assert.doesNotMatch(previewBody, /canExecuteOrderProductImport/);
+  assert.match(source.orderProductImportManager, /href=\{`\/api\/orders\/\$\{orderId\}\/import-products\/template`\}/);
+  assert.match(source.orderProductImportManager, /fetch\(`\/api\/orders\/\$\{orderId\}\/import-products\/preview`/);
+});
+
+test("订单详情仍只以 order.view 作为页面访问门禁", () => {
+  const body = functionBody(source.orderDetail, "export default async function OrderDetailPage");
+  assert.equal(occurrenceCount(body, 'requirePagePermission("order.view")'), 1);
+  assert.doesNotMatch(body, /requirePageAllPermissions/);
+});
+test("订单详情导入入口 Boolean 精确使用 order.view 和 order.importProducts", () => {
+  const block = sourceSlice(source.orderDetail, "const canOpenOrderProductImport =", ";");
+  assert.equal(occurrenceCount(block, 'hasPermission(user.role, "order.view", [])'), 1);
+  assert.equal(occurrenceCount(block, 'hasPermission(user.role, "order.importProducts", [])'), 1);
+  assert.doesNotMatch(block, /product\.|part\.|import\.|\.create|\.update|\.delete/);
+});
+test("订单详情只向 Manager 传递最小导入入口 Boolean", () => {
+  const props = sourceSlice(source.orderDetail, "<OrderDetailManager", "/>" );
+  assert.match(props, /canOpenOrderProductImport=\{canOpenOrderProductImport\}/);
+  assert.doesNotMatch(props, /\b(?:user|role|permissions?|overrides)=/i);
+  assert.match(source.orderManager, /canOpenOrderProductImport: boolean;/);
+});
+test("订单详情导入产品部件入口由 Boolean 完全裁剪且 URL 保持", () => {
+  assert.match(source.orderManager, /\{canOpenOrderProductImport \? \(\s+<Link[\s\S]*?href=\{`\/orders\/\$\{order\.id\}\/import-products`\}[\s\S]*?导入产品部件[\s\S]*?\) : null\}/);
+  assert.doesNotMatch(source.orderManager, /disabled=\{!?canOpenOrderProductImport\}/);
+});
+test("C3h 两个送货入口仍保留各自权限和状态边界", () => {
+  assert.match(source.orderManager, /canCreateDeliveryByPermission/);
+  assert.match(source.orderManager, /canCreateDeliveryByStatus/);
+  assert.match(source.orderManager, /deliveryCreateHref/);
 });
 test("静态测试仅执行只读文件检查", async () => {
   const self = await readFile(fileURLToPath(import.meta.url), "utf8");

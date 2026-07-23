@@ -120,7 +120,13 @@ function modeText(mode: ImportMode) {
   return mode === "simple" ? "简易导入" : "明细导入";
 }
 
-export function ImportExcelManager() {
+export function ImportExcelManager({
+  canPreviewImport,
+  canExecuteImport
+}: {
+  canPreviewImport: boolean;
+  canExecuteImport: boolean;
+}) {
   const [mode, setMode] = useState<ImportMode>("simple");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<SimplePreviewResult | DetailPreviewResult | null>(null);
@@ -149,6 +155,7 @@ export function ImportExcelManager() {
 
   async function parsePreview(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canPreviewImport) return;
     setError("");
     setMessage("");
     setPreview(null);
@@ -180,7 +187,7 @@ export function ImportExcelManager() {
   }
 
   function confirmImport() {
-    if (!preview || !preview.canConfirm) return;
+    if (!canExecuteImport || !preview || !preview.canConfirm) return;
     setError("");
     setMessage("");
     setResult(null);
@@ -254,9 +261,11 @@ export function ImportExcelManager() {
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
-          <button className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
-            解析预览
-          </button>
+          {canPreviewImport ? (
+            <button className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={isPending}>
+              解析预览
+            </button>
+          ) : null}
           <span className="text-sm text-[#667085]">{selectedFileText}</span>
         </form>
 
@@ -280,13 +289,15 @@ export function ImportExcelManager() {
           <section className="rounded-md border border-[#d8dde6] bg-white p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold">{modeText(mode)}预览</h2>
-              <button
-                className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-                disabled={!preview.canConfirm || isPending}
-                onClick={confirmImport}
-              >
-                确认导入
-              </button>
+              {canExecuteImport ? (
+                <button
+                  className="rounded-md bg-[#172033] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  disabled={!preview.canConfirm || isPending}
+                  onClick={confirmImport}
+                >
+                  确认导入
+                </button>
+              ) : null}
             </div>
           </section>
 

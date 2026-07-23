@@ -336,7 +336,8 @@ export function OrderDetailManager({
   canPrintOrder,
   canCompleteProductionProduct,
   canCreateOutsourceOrder,
-  canCreateDeliveryByPermission
+  canCreateDeliveryByPermission,
+  canOpenOrderProductImport
 }: {
   order: OrderDetail;
   customers: Customer[];
@@ -357,6 +358,7 @@ export function OrderDetailManager({
   canCompleteProductionProduct: boolean;
   canCreateOutsourceOrder: boolean;
   canCreateDeliveryByPermission: boolean;
+  canOpenOrderProductImport: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -1368,12 +1370,14 @@ export function OrderDetailManager({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">产品明细表</h2>
           <div className="flex flex-wrap gap-2">
-            <Link
-              className="inline-flex items-center justify-center rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold hover:bg-[#eef2f6]"
-              href={`/orders/${order.id}/import-products`}
-            >
-              导入产品部件
-            </Link>
+            {canOpenOrderProductImport ? (
+              <Link
+                className="inline-flex items-center justify-center rounded-lg border border-[#cfd6e1] px-4 py-2 text-sm font-semibold hover:bg-[#eef2f6]"
+                href={`/orders/${order.id}/import-products`}
+              >
+                导入产品部件
+              </Link>
+            ) : null}
             <Link
               className="inline-flex items-center justify-center rounded-lg bg-[#0f766e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#115e59]"
               href={`/orders/${order.id}/drawings/upload-center`}

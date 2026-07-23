@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requirePageAllPermissions } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/prisma";
+import { hasPermission } from "@/lib/permissions";
 import { ImportProductsManager } from "./import-products-manager";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +12,14 @@ type ImportProductsPageProps = {
 };
 
 export default async function ImportProductsPage({ params }: ImportProductsPageProps) {
+  const user = await requirePageAllPermissions(["order.view", "order.importProducts"]);
+  const canExecuteOrderProductImport =
+    hasPermission(user.role, "order.view", []) &&
+    hasPermission(user.role, "order.importProducts", []) &&
+    hasPermission(user.role, "product.view", []) &&
+    hasPermission(user.role, "product.create", []) &&
+    hasPermission(user.role, "part.view", []) &&
+    hasPermission(user.role, "part.create", []);
   const { id } = await params;
   const order = await prisma.order.findFirst({
     where: {
@@ -50,7 +60,7 @@ export default async function ImportProductsPage({ params }: ImportProductsPageP
           </div>
         </dl>
       </section>
-      <ImportProductsManager orderId={order.id} />
+      <ImportProductsManager orderId={order.id} canExecuteOrderProductImport={canExecuteOrderProductImport} />
     </div>
   );
 }
